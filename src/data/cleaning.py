@@ -40,10 +40,10 @@ def select_and_normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 
     column_candidates = {
         "product_id": ["asin", "product_id", "sku", "id"],
-        "title": ["title", "product_title", "name"],
-        "brand": ["brand", "manufacturer", "maker"],
-        "category": ["category", "categories", "parent"],
-        "price": ["price", "list_price", "price_usd"],
+        "title": ["title", "product_title", "name", "Product Name"],
+        "brand": ["brand", "manufacturer", "maker", "Brand Name"],
+        "category": ["category", "categories", "parent", "Category"],
+        "price": ["price", "list_price", "price_usd", "Price"],
         "rating": ["rating", "star_rating", "average_rating", "stars"],
         "features": ["feature", "features", "description", "bullet_points"],
         "ingredients": ["ingredients", "ingredient"],
@@ -74,38 +74,35 @@ def select_and_normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return subset
 
 
-def filter_by_category(
-    df: pd.DataFrame,
-    allowed_keywords: Optional[Sequence[str]] = None,
-) -> pd.DataFrame:
-    """Filter the dataframe to rows that match allowed category keywords.
+def filter_toys_category(df: pd.DataFrame) -> pd.DataFrame:
+    """Keep rows whose category contains ``Toys & Games`` (case-insensitive).
 
-    Matching is case-insensitive and checks both the category column (if
-    present) and the title as a fallback. If ``allowed_keywords`` is empty or
-    ``None``, the original dataframe is returned unchanged.
+    If the filter would remove all rows, log a warning and return the
+    unfiltered dataframe to ensure downstream indexing has data to work with.
     """
-    if not allowed_keywords:
+
+    if "category" not in df.columns:
+        logger.warning("Category column not found; skipping category filter")
         return df
 
-    keywords_lower = [kw.lower() for kw in allowed_keywords]
+    before = len(df)
+    mask = df["category"].str.contains("Toys & Games", case=False, na=False)
+    filtered = df[mask]
 
-    def row_matches(row: pd.Series) -> bool:
-        haystacks = []
-        if "category" in row and pd.notna(row["category"]):
-            haystacks.append(str(row["category"]).lower())
-        if "title" in row and pd.notna(row["title"]):
-            haystacks.append(str(row["title"]).lower())
-        combined = " ".join(haystacks)
-        return any(keyword in combined for keyword in keywords_lower)
+    if len(filtered) == 0:
+        logger.warning(
+            "Category filter 'Toys & Games' would remove all rows (%d -> 0); using unfiltered dataframe instead",
+            before,
+        )
+        return df
 
-    filtered = df[df.apply(row_matches, axis=1)]
-    logger.info("Filtered rows: %d -> %d using keywords %s", len(df), len(filtered), keywords_lower)
+    logger.info("Filtered rows: %d -> %d using category filter 'Toys & Games'", before, len(filtered))
     return filtered
 
 
 def clean_dataframe(
     df: pd.DataFrame,
-    allowed_keywords: Optional[Sequence[str]] = None,
+    allowed_keywords: Optional[Sequence[str]] = None,  # kept for backward compatibility; ignored
     price_cap_quantile: float = 0.99,
 ) -> pd.DataFrame:
     """Apply filtering and cleaning rules to the dataframe."""
@@ -133,7 +130,7 @@ def clean_dataframe(
     if "rating" in df.columns:
         df["rating"] = pd.to_numeric(df["rating"], errors="coerce")
 
-    df = filter_by_category(df, allowed_keywords=allowed_keywords)
+    df = filter_toys_category(df)
 
     df = df.reset_index(drop=True)
     logger.info("Final cleaned dataset has %d rows and columns %s", len(df), list(df.columns))
