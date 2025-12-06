@@ -82,7 +82,11 @@ def get_embedding_function(backend: EmbeddingBackend = "openai") -> Callable[[Se
 
 
 def _make_document(row: pd.Series) -> str:
-    """Combine configured text columns into a single embedding document."""
+    """Combine configured text columns into a single embedding document.
+
+    "Product Name" alone is considered sufficient for indexing. Additional
+    descriptive fields are appended when present.
+    """
 
     parts: List[str] = []
     for col in TEXT_COLUMNS:
@@ -90,6 +94,11 @@ def _make_document(row: pd.Series) -> str:
             val = row[col]
             if pd.notna(val):
                 parts.append(str(val))
+
+    # Fallback: ensure Product Name is kept even if other fields are empty
+    if not parts and pd.notna(row.get("Product Name")):
+        parts.append(str(row["Product Name"]))
+
     return " | ".join(parts).strip()
 
 
@@ -137,6 +146,8 @@ def build_vector_index(df: pd.DataFrame, index_dir: Path, collection_name: str =
         valid_ids.append(product_id_str)
         valid_documents.append(doc)
         valid_metadatas.append(metadata)
+
+    logger.info("Prepared %d valid documents out of %d cleaned rows", len(valid_documents), len(df))
 
     if not valid_documents:
         logger.warning("No valid documents to index; skipping Chroma add.")
