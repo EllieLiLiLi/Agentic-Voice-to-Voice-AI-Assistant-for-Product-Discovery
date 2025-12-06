@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import shutil
 from pathlib import Path
 from typing import Sequence
@@ -25,12 +24,7 @@ from typing import Sequence
 import pandas as pd
 
 from src.data.cleaning import clean_dataframe, load_raw_data
-from src.data.embedding import EmbeddingBackend, get_embedding_function
-
-try:
-    import chromadb
-except ImportError as exc:  # pragma: no cover - chromadb added via requirements
-    raise ImportError("chromadb is required to build the vector index") from exc
+from src.data.embedding import build_vector_index
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -51,52 +45,6 @@ DEFAULT_ALLOWED_KEYWORDS: Sequence[str] = (
     "soap",
     "trash",
 )
-
-
-def build_vector_index(df: pd.DataFrame, index_dir: Path) -> None:
-    """Build and persist a Chroma vector index from the cleaned dataframe."""
-    index_dir.parent.mkdir(parents=True, exist_ok=True)
-
-    embedding_backend: EmbeddingBackend = os.environ.get("EMBEDDING_BACKEND", "openai")  # type: ignore
-    embed_fn = get_embedding_function(backend=embedding_backend)
-
-    # Recreate the persistent index directory to avoid stale state
-    if index_dir.exists():
-        logger.info("Removing existing index directory at %s", index_dir)
-        shutil.rmtree(index_dir)
-
-    client = chromadb.PersistentClient(path=str(index_dir))
-    collection = client.get_or_create_collection(name=COLLECTION_NAME, embedding_function=embed_fn)
-
-    documents = []
-    metadatas = []
-    ids = []
-
-    for idx, row in df.iterrows():
-        text_parts = [row.get("title", ""), row.get("features", "")]
-        if pd.notna(row.get("ingredients")):
-            text_parts.append(str(row.get("ingredients")))
-        combined_text = "\n".join([str(part) for part in text_parts if part])
-        documents.append(combined_text)
-
-        metadata = {
-            "doc_id": idx,
-            "product_id": row.get("product_id"),
-            "title": row.get("title"),
-            "price": float(row.get("price")) if pd.notna(row.get("price")) else None,
-            "rating": float(row.get("rating")) if pd.notna(row.get("rating")) else None,
-            "brand": row.get("brand"),
-            "category": row.get("category"),
-            "ingredients": row.get("ingredients"),
-            "features": row.get("features"),
-        }
-        metadatas.append(metadata)
-        ids.append(str(idx))
-
-    logger.info("Adding %d documents to Chroma collection '%s'", len(documents), COLLECTION_NAME)
-    collection.add(ids=ids, documents=documents, metadatas=metadatas)
-
-    logger.info("Finished building index at %s", index_dir)
 
 
 def save_clean_data(df: pd.DataFrame, output_path: Path) -> None:
@@ -137,7 +85,7 @@ def main() -> None:
     logger.info("Cleaned dataframe shape: %s", cleaned_df.shape)
 
     save_clean_data(cleaned_df, args.clean_output)
-    build_vector_index(cleaned_df, index_dir=args.index_dir)
+    build_vector_index(cleaned_df, index_dir=args.index_dir, collection_name=COLLECTION_NAME)
 
 
 if __name__ == "__main__":

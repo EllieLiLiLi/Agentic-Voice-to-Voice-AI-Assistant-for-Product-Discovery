@@ -7,18 +7,32 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-from typing import Callable, Iterable, List, Literal, Sequence
+import shutil
+from pathlib import Path
+from typing import Callable, List, Literal, Sequence
 
 import numpy as np
+import pandas as pd
 
 try:
+    import chromadb
     from chromadb.utils import embedding_functions
 except ImportError:  # pragma: no cover - chromadb should be installed via requirements
+    chromadb = None  # type: ignore
     embedding_functions = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
 EmbeddingBackend = Literal["openai", "dummy"]
+
+TEXT_COLUMNS: Sequence[str] = (
+    "Product Name",
+    "Product Description",
+    "About Product",
+    "Product Specification",
+    "Technical Details",
+    "Ingredients",
+)
 
 
 class DummyEmbeddingFunction:
@@ -65,3 +79,72 @@ def get_embedding_function(backend: EmbeddingBackend = "openai") -> Callable[[Se
 
     logger.warning("Using dummy embeddings; search quality will be poor. Set EMBEDDING_BACKEND=openai for real embeddings.")
     return DummyEmbeddingFunction()
+
+
+def _make_document(row: pd.Series) -> str:
+    """Combine configured text columns into a single embedding document."""
+
+    parts: List[str] = []
+    for col in TEXT_COLUMNS:
+        if col in row.index:
+            val = row[col]
+            if pd.notna(val):
+                parts.append(str(val))
+    return " | ".join(parts).strip()
+
+
+def build_vector_index(df: pd.DataFrame, index_dir: Path, collection_name: str = "products") -> None:
+    """Build and persist a Chroma vector index from the cleaned dataframe."""
+
+    if chromadb is None:  # pragma: no cover - dependency should be installed
+        raise ImportError("chromadb is required to build the vector index")
+
+    index_dir.parent.mkdir(parents=True, exist_ok=True)
+
+    embedding_backend: EmbeddingBackend = os.environ.get("EMBEDDING_BACKEND", "openai")  # type: ignore
+    embed_fn = get_embedding_function(backend=embedding_backend)
+
+    # Recreate the persistent index directory to avoid stale state
+    if index_dir.exists():
+        logger.info("Removing existing index directory at %s", index_dir)
+        shutil.rmtree(index_dir)
+
+    client = chromadb.PersistentClient(path=str(index_dir))
+    collection = client.get_or_create_collection(name=collection_name, embedding_function=embed_fn)
+
+    valid_ids: List[str] = []
+    valid_documents: List[str] = []
+    valid_metadatas: List[dict] = []
+
+    for idx, row in df.iterrows():
+        doc = _make_document(row)
+        if not doc:
+            continue
+
+        product_id = row.get("Asin") or row.get("Unig Id") or idx
+        product_id_str = str(product_id)
+
+        metadata = {
+            "asin": row.get("Asin") if pd.notna(row.get("Asin")) else None,
+            "unig_id": row.get("Unig Id") if pd.notna(row.get("Unig Id")) else None,
+            "product_name": row.get("Product Name") if pd.notna(row.get("Product Name")) else None,
+            "brand": row.get("Brand Name") if pd.notna(row.get("Brand Name")) else None,
+            "category": row.get("Category") if pd.notna(row.get("Category")) else None,
+            "list_price": float(row["List Price"]) if "List Price" in row and pd.notna(row["List Price"]) else None,
+            "rating": float(row["Average Rating"]) if "Average Rating" in row and pd.notna(row["Average Rating"]) else None,
+        }
+
+        valid_ids.append(product_id_str)
+        valid_documents.append(doc)
+        valid_metadatas.append(metadata)
+
+    if not valid_documents:
+        logger.warning("No valid documents to index; skipping Chroma add.")
+        return
+
+    assert len(valid_ids) == len(valid_documents) == len(valid_metadatas)
+
+    logger.info("Adding %d documents to Chroma collection '%s'", len(valid_documents), collection_name)
+    collection.add(ids=valid_ids, documents=valid_documents, metadatas=valid_metadatas)
+
+    logger.info("Finished building index at %s", index_dir)
