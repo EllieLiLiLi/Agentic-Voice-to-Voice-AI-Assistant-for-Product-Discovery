@@ -127,8 +127,7 @@ def build_vector_index(df: pd.DataFrame, index_dir: Path, collection_name: str =
         if not doc:
             continue
 
-        product_id = row.get("title") or idx
-        product_id_str = str(product_id)
+        product_id_str = f"prod-{idx}"
 
         metadata = {
             "title": row.get("title") if pd.notna(row.get("title")) else None,
