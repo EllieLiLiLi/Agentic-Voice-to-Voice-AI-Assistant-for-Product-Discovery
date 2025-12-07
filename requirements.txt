@@ -1,0 +1,11 @@
+langgraph
+streamlit
+fastmcp
+pydantic>=1.10
+pandas
+httpx
+python-dotenv
+numpy
+chromadb
+openai
+pyarrow
