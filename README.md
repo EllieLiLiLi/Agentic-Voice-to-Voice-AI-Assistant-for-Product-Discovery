@@ -37,6 +37,64 @@ This project scaffolds a voice-first, multi-agent assistant that helps users dis
    streamlit run src/ui/app.py
    ```
 
+## Running the RAG Index & Web Search Tools Locally
+
+### Installation
+
+1. Clone the repository and enter the project directory.
+2. Install dependencies (preferably inside a virtual environment):
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+### Required environment variables
+
+- `OPENAI_API_KEY` — required for embedding generation and RAG indexing.
+- `WEB_SEARCH_API_KEY` — Tavily API key for the `web.search` MCP tool.
+
+Copy the template and fill in your keys (optional but recommended):
+```bash
+cp .env.example .env
+```
+
+Export the variables in your shell before running tools:
+```bash
+export OPENAI_API_KEY="your_openai_key"
+export WEB_SEARCH_API_KEY="your_tavily_key"
+```
+
+### Rebuilding the RAG index
+
+Rebuild the cleaned dataset and Chroma index from the raw CSV:
+```bash
+python -m src.scripts.build_index --rebuild
+```
+
+This command:
+- Loads `data/raw/amazon2020.csv`.
+- Cleans and writes `data/processed/products_cleaned.parquet`.
+- Rebuilds the Chroma index at `data/processed/chroma_index/` (overwrites any existing index).
+
+### Running manual tests (RAG + Web Search)
+
+RAG search smoke test:
+```bash
+python tests/manual/manual_rag_test.py
+```
+Expected: prints the top-k similar products for the sample query.
+
+Web search smoke test:
+```bash
+python tests/manual/manual_web_search_test.py
+```
+Expected: prints normalized Tavily search results for the sample query.
+
+### Troubleshooting
+
+- RAG returns 0 results → ensure you ran `python -m src.scripts.build_index --rebuild` and that the index exists in `data/processed/chroma_index/`.
+- `web.search` returns empty results → confirm `WEB_SEARCH_API_KEY` is set and valid.
+- Import errors or module not found → run commands from the project root so Python resolves `src/` correctly.
+
 ## Notes
 
 - Real API keys must be supplied via environment variables or a local `.env` file. Do **not** hardcode secrets.
