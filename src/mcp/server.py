@@ -15,14 +15,14 @@ app = FastMCP(
 )
 
 
-@app.tool()
-def rag_search_tool(query: str, k: int = 5) -> Dict:
+@app.tool(name="rag.search")
+def rag_search_tool(query: str, top_k: int = 5) -> Dict:
     """Bridge decorator to expose local RAG search via MCP."""
 
-    return rag_search(query=query, k=k)
+    return rag_search(query=query, top_k=top_k)
 
 
-@app.tool()
+@app.tool(name="web.search")
 def web_search_tool(query: str, k: int = 5) -> Dict:
     """Bridge decorator to expose live web search via MCP."""
 
