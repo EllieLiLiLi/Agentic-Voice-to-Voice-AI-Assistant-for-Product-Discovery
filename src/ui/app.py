@@ -4,6 +4,17 @@ from __future__ import annotations
 import io
 from typing import Any, Dict, List, Optional
 
+import sys
+import os
+
+CURRENT_DIR = os.path.dirname(__file__)               # .../src/ui
+SRC_DIR = os.path.dirname(CURRENT_DIR)                # .../src
+ROOT_DIR = os.path.dirname(SRC_DIR)                   # .../Agentic-Voice-to-Voice-...
+
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
+
 import pandas as pd
 import streamlit as st
 
