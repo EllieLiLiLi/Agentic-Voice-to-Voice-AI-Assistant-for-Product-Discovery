@@ -4,27 +4,16 @@ from __future__ import annotations
 import io
 from typing import Any, Dict, List, Optional
 
-import sys
-import os
-
-CURRENT_DIR = os.path.dirname(__file__)               # .../src/ui
-SRC_DIR = os.path.dirname(CURRENT_DIR)                # .../src
-ROOT_DIR = os.path.dirname(SRC_DIR)                   # .../Agentic-Voice-to-Voice-...
-
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
-
-
 import pandas as pd
 import streamlit as st
 
-# ✅ 用你们自己实现的 ASR / TTS 函数（已经在 src/asr_tts 里）
+# src.asr_tts.asr / tts
 from src.asr_tts.asr import transcribe_audio
 from src.asr_tts.tts import synthesize_speech
 
 
 # =========================
-# 1. 假的 Agent 返回结果（先用来撑 UI）
+# 1. 假的 Agent 返回（先撑起右侧 UI 的长相）
 # =========================
 MOCK_AGENT_RESULT: Dict[str, Any] = {
     "answer": (
@@ -93,28 +82,37 @@ MOCK_AGENT_RESULT: Dict[str, Any] = {
 }
 
 
-def render_audio_recorder() -> Optional[bytes]:
-    """Streamlit 自带的录音控件，返回音频 bytes。"""
-    audio_bytes = st.audio_input("🎤 Record a voice query", key="mic")
-    return audio_bytes
+def render_audio_uploader() -> Optional[bytes]:
+    """
+    左侧：上传或录音。这里先用最简单的 file_uploader。
+    （以后要换成真正录音组件也可以）
+    """
+    st.markdown("**Upload a short audio file (WAV / MP3 / M4A)**")
+    uploaded = st.file_uploader(
+        "Audio input", type=["wav", "mp3", "m4a"], accept_multiple_files=False
+    )
+    if uploaded is None:
+        return None
+    return uploaded.read()
 
 
 def app() -> None:
-    # ========== 页面配置 ==========
+    # ========== 页面基本设置 ==========
     st.set_page_config(
-        page_title="Voice Product Assistant",
+        page_title="Agentic Voice-to-Voice Product Assistant",
         page_icon="🛒",
         layout="wide",
     )
 
-    st.title("🛒 Agentic Voice-to-Voice Product Discovery")
+    st.title("🛒 Agentic Voice-to-Voice Product Discovery Assistant")
 
     st.markdown(
         """
 This UI currently uses:
 
-- ✅ **Real ASR / TTS** from `src/asr_tts`
-- ⚠️ **Mock agent result** (LangGraph & MCP not wired yet)
+- ✅ **Real ASR** via `transcribe_audio` (OpenAI Whisper)
+- ✅ **Real TTS** via `synthesize_speech` (OpenAI TTS, mp3)
+- ⚠️ **Mock agent result** (LangGraph & RAG not wired yet)
 
 Once the agent is ready, replace the mock with real calls.
 """
@@ -128,31 +126,32 @@ Once the agent is ready, replace the mock with real calls.
     if "audio_reply" not in st.session_state:
         st.session_state.audio_reply = None
 
-    # ========== 左右两栏 ==========
+    # ========== 左右两栏布局 ==========
     left_col, right_col = st.columns([1.1, 1.3])
 
     # ==============================
-    # 左：录音 + ASR + Transcript + Mock Agent + TTS
+    # 左：音频 → ASR → Transcript → Mock Agent → TTS
     # ==============================
     with left_col:
         st.subheader("🎙️ Voice Input & Controls")
 
-        # 1) 录音控件
-        audio_bytes = render_audio_recorder()
+        # 1) 上传音频
+        audio_bytes = render_audio_uploader()
 
-        # 2) 跑 ASR（用你们的 transcribe_audio）
+        # 2) 跑 ASR（用你 asr.py 里的 transcribe_audio）
         if st.button("▶️ Run ASR"):
             if not audio_bytes:
-                st.warning("Please record or upload audio first.")
+                st.warning("Please upload an audio file first.")
             else:
                 try:
+                    # 这里 filename 可以随便给一个后缀
                     transcript = transcribe_audio(audio_bytes, filename="query.wav")
                     st.session_state.transcript = transcript
                     st.success("ASR completed.")
                 except Exception as e:
                     st.error(f"ASR error: {e}")
 
-        # 3) Transcript 文本框（可手动改）
+        # 3) Transcript 文本框（可手动编辑）
         st.markdown("### ✍️ Transcript (editable)")
         st.session_state.transcript = st.text_area(
             "You can edit or type your query here:",
@@ -160,7 +159,7 @@ Once the agent is ready, replace the mock with real calls.
             height=150,
         )
 
-        # 4) 跑 Mock Agent（先把右边 UI 的长相撑出来）
+        # 4) 跑 Mock Agent（先把右边 UI 的“长相”撑出来）
         if st.button("🤖 Run Mock Agent (fake LangGraph)"):
             if not st.session_state.transcript.strip():
                 st.warning("Transcript is empty. Type something first.")
@@ -168,7 +167,7 @@ Once the agent is ready, replace the mock with real calls.
                 st.session_state.agent_result = MOCK_AGENT_RESULT
                 st.success("Mock agent result loaded.")
 
-        # 5) 用 TTS 播放回答（用你们的 synthesize_speech）
+        # 5) 用 TTS 合成回答并播放（用 tts.py 里的 synthesize_speech）
         agent_result = st.session_state.agent_result
         if agent_result and agent_result.get("answer"):
             st.markdown("### 🔊 TTS (play answer)")
@@ -176,10 +175,12 @@ Once the agent is ready, replace the mock with real calls.
                 try:
                     audio_bytes_out = synthesize_speech(agent_result["answer"])
                     st.session_state.audio_reply = audio_bytes_out
+                    st.success("TTS synthesis completed.")
                 except Exception as e:
                     st.error(f"TTS error: {e}")
 
             if st.session_state.audio_reply:
+                # 你的 synthesize_speech 返回的是 mp3 bytes
                 st.audio(st.session_state.audio_reply, format="audio/mp3")
 
     # ==============================
@@ -210,7 +211,7 @@ Once the agent is ready, replace the mock with real calls.
                 with st.expander(f"{i}. {node_name}"):
                     st.write(summary)
 
-        # 3) 产品对比表
+        # 3) 产品对比表（mock）
         st.markdown("### 📊 Top-K Product Comparison (mock)")
         products: List[Dict[str, Any]] = agent_result.get("products", [])
         if not products:
@@ -232,7 +233,7 @@ Once the agent is ready, replace the mock with real calls.
             df = df[cols]
             st.dataframe(df, use_container_width=True)
 
-        # 4) 引用信息（doc_id + URL）
+        # 4) Citations（doc_id + URL）
         st.markdown("### 🔗 Citations")
         if not products:
             st.write("No citations.")
