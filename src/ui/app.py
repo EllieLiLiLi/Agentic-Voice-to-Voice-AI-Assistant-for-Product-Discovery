@@ -191,16 +191,42 @@ def app() -> None:
         layout="wide",
     )
 
+    def app() -> None:
+    st.set_page_config(
+        page_title="Agentic Voice-to-Voice Product Assistant",
+    page_icon="🛒",
+        layout="wide",
+    )
+
+    # background color
+    st.markdown(
+        """
+        <style>
+        /* left sidebar */
+        [data-testid="stSidebar"] {
+            background-color: #88ada5ff;
+        }
+
+        /* right - main color */
+        [data-testid="stAppViewContainer"] {
+            background-color: #d9ead36b;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
     st.title("🛒 Agentic Voice-to-Voice Product Discovery Assistant")
 
     st.markdown(
         """
-This is a **chatbot-style** UI:
+This is a **chatbot**:
 
-- 💬 Ask questions via the chat box at the bottom
-- 🎙️ Or use voice input in the sidebar
-- 🔊 Each assistant reply automatically has a **voice answer**
-- ⬇️ Click the dropdown to see **text answer + product table + citations**
+- Ask questions via the chat box at the bottom
+- Or use voice input in the sidebar
+- Each assistant reply automatically has a **voice answer**
+- Click the dropdown to see **text answer + product table + citations**
 """
     )
 
