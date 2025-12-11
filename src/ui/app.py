@@ -207,7 +207,7 @@ def app() -> None:
             background-color: #f5faf4;
         }
     
-        /* Top app bar (make it blend into main background) */
+        /* Top app bar */
         header[data-testid="stHeader"] {
             background-color: #f5faf4 !important;
             box-shadow: none !important;
@@ -222,41 +222,52 @@ def app() -> None:
             border-top: 1px solid #d0ddd4;
         }
     
-        /* ===== Sidebar cards (“bubbles”) ===== */
+        /* ===== Sidebar boxes ===== */
     
-        /* Audio recorder card */
+        /* 1) Audio recorder card (top box) -> white */
         [data-testid="stSidebar"] [data-testid="stAudioInput"] > div {
-            background-color: #d9ead3 !important;
+            background-color: #ffffff !important;
             border-radius: 16px;
         }
     
-        /* File uploader dropzone */
+        /* 2) File uploader dropzone (second box) -> white */
         [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
-            background-color: #d9ead3 !important;
+            background-color: #ffffff !important;
             border-radius: 16px;
-            border: 1px dashed #b7cbbf;
+            border: 1px dashed #d0ddd4;
         }
     
-        /* Sidebar buttons (Send voice / Clear conversation) */
+        /* "Browse files" button inside dropzone -> deeper teal */
+        [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button {
+            background-color: #88ada5 !important;
+            color: #ffffff !important;
+            border-radius: 999px;
+            border: none;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.16);
+        }
+        [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button:hover {
+            background-color: #76958f !important;
+        }
+    
+        /* 3 & 4) Sidebar buttons (Send voice / Clear conversation)
+           -> same color as right background */
         [data-testid="stSidebar"] .stButton > button {
-            background-color: #d9ead3 !important;
+            background-color: #f5faf4 !important;
             color: #24332c !important;
             border-radius: 999px;
             border: none;
             box-shadow: 0 1px 2px rgba(0,0,0,0.12);
         }
         [data-testid="stSidebar"] .stButton > button:hover {
-            background-color: #cfe3cc !important;
+            background-color: #e5f0e6 !important;
         }
     
         /* ===== Chat bubbles ===== */
     
-        /* Remove extra background on chat message container */
         [data-testid="stChatMessage"] {
             background-color: transparent;
         }
     
-        /* Inner content of each chat message as a rounded bubble */
         [data-testid="stChatMessage"] > div {
             border-radius: 16px;
             padding: 0.75rem 1rem;
@@ -264,20 +275,14 @@ def app() -> None:
             box-shadow: 0 1px 2px rgba(0,0,0,0.06);
         }
     
-        /* Heuristic: odd = user, even = assistant.
-           If it looks reversed in your app, just swap these two blocks. */
-    
-        /* User messages: white bubble */
+        /* Heuristic: odd = user, even = assistant */
         [data-testid="stChatMessage"]:nth-of-type(odd) > div {
             background-color: #ffffff;
         }
-    
-        /* Assistant messages: soft green bubble */
         [data-testid="stChatMessage"]:nth-of-type(even) > div {
             background-color: #d9ead3;
         }
     
-        /* Chat input text area: rounded pill */
         [data-testid="stChatInput"] textarea {
             border-radius: 999px !important;
             border: 1px solid #b7cbbf !important;
@@ -286,6 +291,7 @@ def app() -> None:
         """,
         unsafe_allow_html=True,
     )
+
 
     st.title("🛒 Agentic Voice-to-Voice Product Discovery Assistant")
 
