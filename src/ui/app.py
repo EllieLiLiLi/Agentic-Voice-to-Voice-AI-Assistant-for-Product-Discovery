@@ -9,19 +9,27 @@ import streamlit as st
 
 from src.asr_tts.asr import transcribe_audio
 from src.asr_tts.tts import synthesize_speech
-from src.graph.graph import agent as product_agent  # LangGraph compiled agent
+from src.graph.graph import agent as product_agent
+from src.graph.nodes import (
+    router_node,
+    planner_node,
+    retriever_node,
+    answerer_node,
+)
 
 # =========================
 # =========================
 # 1'. 真正的 Agent runner（LangGraph backend）
 # =========================
 def run_agent(query: str) -> Dict[str, Any]:
-    """Call the LangGraph agent and adapt its state to the UI schema."""
+    """Run the toy product assistant by calling the 4 LangGraph nodes in order.
 
-    # 🌟 一定要包含 user_query，这就是 nodes.py 里在用的 key
-    init_state: Dict[str, Any] = {
+    只在 UI 里把 nodes 串起来：Router → Planner → Retriever → Answerer。
+    """
+
+    # 初始 state：等价于你之前传给 graph 的内容
+    state: Dict[str, Any] = {
         "user_query": query,
-        # 下面这些不是必须，但加上更安全、也方便 node_logs 之类用
         "intent": {},
         "constraints": {},
         "plan": [],
@@ -36,12 +44,20 @@ def run_agent(query: str) -> Dict[str, Any]:
     }
 
     try:
-        # ✅ 关键点：一定是把整个 dict 传进去
-        #    而不是 product_agent.invoke(query)
-        #    也不是 product_agent.invoke({})
-        result_state: Dict[str, Any] = product_agent.invoke(init_state)
+        # 1) Router
+        state = router_node(state)
+
+        # 如果 router 判定 out_of_scope，直接跳过后面的搜索节点
+        if state.get("intent", {}).get("type") != "out_of_scope":
+            # 2) Planner
+            state = planner_node(state)
+            # 3) Retriever
+            state = retriever_node(state)
+            # 4) Answerer
+            state = answerer_node(state)
+
     except Exception as e:
-        # 只改 UI：把错误展示出来，不改后端逻辑
+        # 后端任意一步报错，都在 UI 这边兜底
         st.error(f"Agent error: {e}")
         return {
             "answer": f"[Agent error] {e}",
@@ -50,7 +66,9 @@ def run_agent(query: str) -> Dict[str, Any]:
             "raw_state": {"error": repr(e)},
         }
 
-    final_answer: Dict[str, Any] = result_state.get("final_answer", {}) or {}
+    # ===== 正常情况下，从最终 state 里抽取数据喂给 UI =====
+
+    final_answer: Dict[str, Any] = state.get("final_answer", {}) or {}
     spoken = final_answer.get("spoken_summary")
     detailed = final_answer.get("detailed_analysis")
     answer_text = (
@@ -60,13 +78,13 @@ def run_agent(query: str) -> Dict[str, Any]:
     )
 
     products = (
-        result_state.get("reconciled_results")
-        or result_state.get("rag_results")
-        or result_state.get("web_results")
+        state.get("reconciled_results")
+        or state.get("rag_results")
+        or state.get("web_results")
         or []
     )
 
-    logs = result_state.get("node_logs") or []
+    logs = state.get("node_logs") or []
     steps = [
         {"node": f"step_{i+1}", "summary": log}
         for i, log in enumerate(logs)
@@ -76,9 +94,8 @@ def run_agent(query: str) -> Dict[str, Any]:
         "answer": answer_text,
         "products": products,
         "steps": steps,
-        "raw_state": result_state,
+        "raw_state": state,
     }
-
 
 
 
