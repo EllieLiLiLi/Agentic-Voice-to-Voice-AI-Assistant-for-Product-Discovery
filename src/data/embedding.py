@@ -79,8 +79,11 @@ def build_vector_index(
     valid_documents: List[str] = []
     valid_metadatas: List[dict] = []
 
-    for idx, row in cleaned_df.iterrows():
-        doc = _build_product_document(row)
+    rows = list(cleaned_df.iterrows())
+    documents = [_build_product_document(row) for _, row in rows]
+
+    for (idx, row), doc in zip(rows, documents):
+        doc = doc.strip()
         if not doc:
             continue
 
@@ -101,8 +104,8 @@ def build_vector_index(
             "title": row.get("title", ""),
             "brand": row.get("brand", ""),
             "category": row.get("category", ""),
-            "price": price_clean,
-            "url": url_val,
+            "price": float(row["price"]) if not pd.isna(row["price"]) else None,
+            "url": row.get("url", ""),
         }
 
         valid_ids.append(doc_id)
