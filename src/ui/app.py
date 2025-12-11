@@ -431,7 +431,7 @@ Ask me via text or voice. I will provide a voice response along with optional te
                     st.write("No audio available for this answer.")
 
                 # 2) Dropdown with text + products + citations
-                with st.expander("View full answer & product info"):
+                with st.expander("View full answer and product information"):
                     st.markdown("#### Answer")
                     st.markdown(msg.get("content", ""))
                     agent_result = msg.get("agent_result")
