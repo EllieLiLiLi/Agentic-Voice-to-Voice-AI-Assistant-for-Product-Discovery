@@ -174,6 +174,12 @@ Once the agent is ready, replace the mock with real calls.
             if st.button("Generate & Play Voice Reply"):
                 try:
                     audio_bytes_out = synthesize_speech(agent_result["answer"])
+
+                    # ⭐ 调试：看类型和长度
+                    st.write(f"TTS type: {type(audio_bytes_out)}, len={len(audio_bytes_out)}")
+                    with open("debug_tts.mp3", "wb") as f:
+                        f.write(audio_bytes_out)
+            
                     st.session_state.audio_reply = audio_bytes_out
                     st.success("TTS synthesis completed.")
                 except Exception as e:
