@@ -11,7 +11,6 @@ from src.asr_tts.asr import transcribe_audio
 from src.asr_tts.tts import synthesize_speech
 from src.graph.graph import agent as product_agent  # LangGraph compiled agent
 
-
 # =========================
 # 1. Mock Agent output (replace with real LangGraph call later)
 #    （现在已经不用这个 mock 结果了，只是留在文件里做参考）
@@ -104,36 +103,27 @@ MOCK_AGENT_RESULT: Dict[str, Any] = {
 # 1'. 真正的 Agent runner（LangGraph backend）
 # =========================
 def run_agent(query: str) -> Dict[str, Any]:
-    """Call the LangGraph agent and adapt its state to the UI schema.
-
-    只负责跟后端说话，不改 UI 其它逻辑。
-    """
+    """Call the LangGraph agent and adapt its state to the UI schema."""
+    # 🌟 一定要把 user_query 传给 graph，不然就会 KeyError('user_query')
     state: Dict[str, Any] = {
         "user_query": query,
         "node_logs": [],
     }
 
     try:
+        # 调用编译好的 LangGraph graph
         result_state: Dict[str, Any] = product_agent.invoke(state)
     except Exception as e:
-        # 🌟 UI 版本的改动：把真实错误展示出来，而不是只说一句模糊的话
-        import traceback
-
-        st.error("Agent backend raised an error. See details below.")
-        st.exception(e)  # 会在页面上显示 traceback 面板，方便你 debug
-
+        # 这里就只是 UI 兜底，不改后端逻辑
+        st.error(f"Agent error: {e}")
         return {
-            # 在 Answer 里直接把错误写出来，至少知道是哪一层挂了
             "answer": f"[Agent error] {e}",
             "products": [],
             "steps": [],
-            "raw_state": {
-                "error": repr(e),
-                "traceback": traceback.format_exc(),
-            },
+            "raw_state": {"error": repr(e)},
         }
 
-    # ===== 下面是成功情况，逻辑跟之前一样 =====
+    # ===== 提取后端返回内容，喂给你现有的 UI =====
     final_answer: Dict[str, Any] = result_state.get("final_answer", {}) or {}
     spoken = final_answer.get("spoken_summary")
     detailed = final_answer.get("detailed_analysis")
@@ -143,6 +133,7 @@ def run_agent(query: str) -> Dict[str, Any]:
         or "I generated a result, but could not read the final answer."
     )
 
+    # 产品结果：优先用 reconciled_results，其次 rag_results/web_results
     products = (
         result_state.get("reconciled_results")
         or result_state.get("rag_results")
@@ -150,6 +141,7 @@ def run_agent(query: str) -> Dict[str, Any]:
         or []
     )
 
+    # node_logs → steps（给右边 expander 用）
     logs = result_state.get("node_logs") or []
     steps = [
         {"node": f"step_{i+1}", "summary": log}
@@ -162,6 +154,7 @@ def run_agent(query: str) -> Dict[str, Any]:
         "steps": steps,
         "raw_state": result_state,
     }
+
 
 
 
