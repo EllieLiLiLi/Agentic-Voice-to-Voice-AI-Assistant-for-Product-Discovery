@@ -207,15 +207,15 @@ def app() -> None:
             background-color: #f5faf4;
         }
     
-        /* Top app bar: blend into main background */
+        /* Top app bar: slightly darker than main background */
         header[data-testid="stHeader"] {
-            background-color: #f5faf4 !important;
+            background-color: #e4efe4 !important;
             box-shadow: none !important;
         }
         header[data-testid="stHeader"] > div {
-            background-color: #f5faf4 !important;
+            background-color: #e4efe4 !important;
         }
-    
+
         /* ===== Bottom chat input bar ===== */
     
         /* Bar container: keep top line */
@@ -329,12 +329,7 @@ def app() -> None:
 
     st.markdown(
         """
-This is a **chatbot**:
-
-- Ask questions via the chat box at the bottom
-- Or use voice input in the sidebar
-- Each assistant reply automatically has a **voice answer**
-- Click the dropdown to see **text answer + product table + citations**
+Ask me via text or voice. I will provide a voice response along with optional text, product tables, and citations.
 """
     )
 
