@@ -195,19 +195,48 @@ def app() -> None:
     st.markdown(
         """
         <style>
-        /* left sidebar */
+        /* Left sidebar background */
         [data-testid="stSidebar"] {
             background-color: #88ada5ff;
         }
 
-        /* right - main color */
+        /* Main app view (right side) background */
         [data-testid="stAppViewContainer"] {
             background-color: #d9ead36b;
+        }
+
+        /* Top header bar on the right */
+        [data-testid="stHeader"] {
+            background-color: #88ada5d2;
+        }
+
+        /* Bottom chat input bar on the right */
+        [data-testid="stChatInput"] {
+            background-color: #88ada5d2;
+        }
+
+        /* ===== Sidebar “bubble” cards ===== */
+
+        /* Audio recorder card inside the sidebar */
+        [data-testid="stSidebar"] [data-testid="stAudioInput"] > div {
+            background-color: #d9ead36b !important;
+        }
+
+        /* File uploader card inside the sidebar */
+        [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
+            background-color: #d9ead36b !important;
+        }
+
+        /* Buttons in the sidebar (Send voice / Clear conversation) */
+        [data-testid="stSidebar"] .stButton > button {
+            background-color: #d9ead36b !important;
+            border-radius: 999px;
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
+
 
 
     st.title("🛒 Agentic Voice-to-Voice Product Discovery Assistant")
