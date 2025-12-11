@@ -327,9 +327,13 @@ def app() -> None:
 
     st.markdown(
         """
-        <h2 style="font-size: 2.2rem; font-weight: 700; margin-bottom: 0.5rem;">
-          Agentic Voice-to-Voice<br/>
-          Product Discovery Assistant
+        <h2 style="
+            font-size: 1.35rem;
+            font-weight: 700;
+            margin-top: 0.5rem;
+            margin-bottom: 0.4rem;
+        ">
+          Agentic Voice-to-Voice Product Discovery Assistant
         </h2>
         """,
         unsafe_allow_html=True,
