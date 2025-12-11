@@ -325,7 +325,15 @@ def app() -> None:
     )
 
 
-    st.title("🛒 Agentic Voice-to-Voice Product Discovery Assistant")
+    st.markdown(
+        """
+        <h2 style="font-size: 2.2rem; font-weight: 700; margin-bottom: 0.5rem;">
+          Agentic Voice-to-Voice<br/>
+          Product Discovery Assistant
+        </h2>
+        """,
+        unsafe_allow_html=True,
+    )
 
     st.markdown(
         """
