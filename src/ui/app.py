@@ -135,24 +135,44 @@ Once the agent is ready, replace the mock with real calls.
     # ==============================
     with left_col:
         st.subheader("🎙️ Voice Input & Controls")
-
-        # 1) 上传音频
-        audio_bytes = render_audio_uploader()
-
-        # 2) 跑 ASR（用你 asr.py 里的 transcribe_audio）
+    
+        # 1) 在网页里录音（浏览器会弹出麦克风权限）
+        st.markdown("**Record your voice query**")
+        recorded_audio = st.audio_input("Click to start recording")
+    
+        st.markdown("—— or — —")
+    
+        # 2) 备用：上传音频文件
+        audio_file = st.file_uploader(
+            "Upload a short voice query (WAV / MP3 / M4A)",
+            type=["wav", "mp3", "m4a"],
+        )
+    
+        # 3) 运行 ASR：优先用录音，其次用上传文件
         if st.button("▶️ Run ASR"):
-            if not audio_bytes:
-                st.warning("Please upload an audio file first.")
+            audio_bytes = None
+            filename = "recorded.wav"
+    
+            if recorded_audio is not None:
+                # st.audio_input 返回的对象和 UploadedFile 类似，用 getvalue()/read 都行
+                audio_bytes = recorded_audio.getvalue()
+                filename = "recorded.wav"
+            elif audio_file is not None:
+                audio_bytes = audio_file.read()
+                filename = audio_file.name
+    
+            if audio_bytes is None:
+                st.warning("Please record or upload an audio clip first.")
             else:
                 try:
-                    # 这里 filename 可以随便给一个后缀
-                    transcript = transcribe_audio(audio_bytes, filename="query.wav")
+                    transcript = transcribe_audio(audio_bytes, filename=filename)
                     st.session_state.transcript = transcript
                     st.success("ASR completed.")
                 except Exception as e:
                     st.error(f"ASR error: {e}")
 
-        # 3) Transcript 文本框（可手动编辑）
+
+        # 4) Transcript 文本框（可手动编辑）
         st.markdown("### ✍️ Transcript (editable)")
         st.session_state.transcript = st.text_area(
             "You can edit or type your query here:",
@@ -160,7 +180,7 @@ Once the agent is ready, replace the mock with real calls.
             height=150,
         )
 
-        # 4) 跑 Mock Agent（先把右边 UI 的“长相”撑出来）
+        # 5) 跑 Mock Agent（先把右边 UI 的“长相”撑出来）
         if st.button("🤖 Run Mock Agent (fake LangGraph)"):
             if not st.session_state.transcript.strip():
                 st.warning("Transcript is empty. Type something first.")
@@ -168,7 +188,7 @@ Once the agent is ready, replace the mock with real calls.
                 st.session_state.agent_result = MOCK_AGENT_RESULT
                 st.success("Mock agent result loaded.")
 
-        # 5) 用 TTS 合成回答并播放（用 tts.py 里的 synthesize_speech）
+        # 6) 用 TTS 合成回答并播放（用 tts.py 里的 synthesize_speech）
         agent_result = st.session_state.agent_result
         if agent_result and agent_result.get("answer"):
             st.markdown("### 🔊 TTS (play answer)")
