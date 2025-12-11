@@ -129,17 +129,17 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
     steps: List[Dict[str, Any]] = agent_result.get("steps", [])
     products: List[Dict[str, Any]] = agent_result.get("products", [])
 
-    # Step log
-    st.markdown("#### 🪜 Agent Step Log")
-    if not steps:
-        st.write("No step log provided.")
-    else:
-        for i, step in enumerate(steps, start=1):
-            node_name = step.get("node", f"step_{i}")
-            summary = step.get("summary", "")
-            st.markdown(f"**{i}. {node_name}**")
-            st.write(summary)
-            st.markdown("---")
+    # # Step log
+    # st.markdown("#### 🪜 Agent Step Log")
+    # if not steps:
+    #     st.write("No step log provided.")
+    # else:
+    #     for i, step in enumerate(steps, start=1):
+    #         node_name = step.get("node", f"step_{i}")
+    #         summary = step.get("summary", "")
+    #         st.markdown(f"**{i}. {node_name}**")
+    #         st.write(summary)
+    #         st.markdown("---")
 
     # Product comparison table
     st.markdown("#### 📊 Top-K Product Comparison")
