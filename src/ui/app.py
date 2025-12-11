@@ -191,13 +191,6 @@ def app() -> None:
         layout="wide",
     )
 
-    def app() -> None:
-    st.set_page_config(
-        page_title="Agentic Voice-to-Voice Product Assistant",
-    page_icon="🛒",
-        layout="wide",
-    )
-
     # background color
     st.markdown(
         """
