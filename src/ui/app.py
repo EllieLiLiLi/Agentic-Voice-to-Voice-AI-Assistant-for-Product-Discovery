@@ -12,109 +12,36 @@ from src.asr_tts.tts import synthesize_speech
 from src.graph.graph import agent as product_agent  # LangGraph compiled agent
 
 # =========================
-# 1. Mock Agent output (replace with real LangGraph call later)
-#    （现在已经不用这个 mock 结果了，只是留在文件里做参考）
-# =========================
-MOCK_AGENT_RESULT: Dict[str, Any] = {
-    "answer": (
-        "Here are some eco-friendly stainless-steel cleaners under $15 that "
-        "match your request. I prioritized high rating and plant-based ingredients."
-    ),
-    "steps": [
-        {
-            "node": "router",
-            "summary": (
-                "Detected intent as product recommendation for stainless-steel "
-                "cleaner with eco-friendly and price < $15 constraints."
-            ),
-        },
-        {
-            "node": "planner",
-            "summary": (
-                "Planned to call rag.search over the Amazon 2020 cleaning slice, "
-                "filtering by category='cleaning', max_price=15, and eco-friendly features."
-            ),
-        },
-        {
-            "node": "retriever",
-            "summary": (
-                "Executed rag.search, fetched 12 candidate products, and filtered "
-                "down to 5 that mention 'stainless steel' explicitly in title or bullets."
-            ),
-        },
-        {
-            "node": "answerer",
-            "summary": (
-                "Ranked candidates by rating (>=4.3) and number of reviews, "
-                "then created a concise spoken summary plus table with top 3 products."
-            ),
-        },
-        {
-            "node": "safety",
-            "summary": (
-                "Ensured that recommended items are actually stainless-steel cleaners, "
-                "not general-purpose or abrasive products, and that they are in stock."
-            ),
-        },
-        {
-            "node": "final_answer",
-            "summary": (
-                "Summarized pros/cons for each cleaner and recommended two best options "
-                "with short justifications and price/rating info."
-            ),
-        },
-    ],
-    "products": [
-        {
-            "sku": "B0CSTEEL01",
-            "title": "Plant-Based Stainless Steel Cleaner & Polish",
-            "brand": "GreenSpark",
-            "price": 11.99,
-            "rating": 4.7,
-            "doc_id": "asin-B0CSTEEL01",
-            "source_url": "https://example.com/product/eco-steel-1",
-            "features": ["plant-based", "streak-free", "recyclable bottle"],
-        },
-        {
-            "sku": "B0CSTEEL02",
-            "title": "Eco-Friendly Steel Spray (Fragrance Free)",
-            "brand": "PureHome",
-            "price": 9.49,
-            "rating": 4.5,
-            "doc_id": "asin-B0CSTEEL02",
-            "source_url": "https://example.com/product/eco-steel-2",
-            "features": ["fragrance-free", "non-toxic", "child safe"],
-        },
-        {
-            "sku": "B0CSTEEL03",
-            "title": "Fragrance-Free Steel Cleaner with Refill Pack",
-            "brand": "PureShine",
-            "price": 13.50,
-            "rating": 4.5,
-            "doc_id": "local-789",
-            "source_url": "https://example.com/product/eco-steel-3",
-            "features": ["refill pack", "plant-based surfactants"],
-        },
-    ],
-}
-
-# =========================
 # =========================
 # 1'. 真正的 Agent runner（LangGraph backend）
 # =========================
 def run_agent(query: str) -> Dict[str, Any]:
     """Call the LangGraph agent and adapt its state to the UI schema."""
-    # 🌟 一定要把 user_query 传给 graph，不然就会 KeyError('user_query')
-    state: Dict[str, Any] = {
+
+    # 🌟 一定要包含 user_query，这就是 nodes.py 里在用的 key
+    init_state: Dict[str, Any] = {
         "user_query": query,
+        # 下面这些不是必须，但加上更安全、也方便 node_logs 之类用
+        "intent": {},
+        "constraints": {},
+        "plan": [],
+        "search_strategy": None,
+        "search_params": {},
+        "rag_results": [],
+        "web_results": [],
+        "reconciled_results": [],
+        "final_answer": {},
+        "citations": [],
         "node_logs": [],
     }
 
     try:
-        # 调用编译好的 LangGraph graph
-        result_state: Dict[str, Any] = product_agent.invoke(state)
+        # ✅ 关键点：一定是把整个 dict 传进去
+        #    而不是 product_agent.invoke(query)
+        #    也不是 product_agent.invoke({})
+        result_state: Dict[str, Any] = product_agent.invoke(init_state)
     except Exception as e:
-        # 这里就只是 UI 兜底，不改后端逻辑
+        # 只改 UI：把错误展示出来，不改后端逻辑
         st.error(f"Agent error: {e}")
         return {
             "answer": f"[Agent error] {e}",
@@ -123,7 +50,6 @@ def run_agent(query: str) -> Dict[str, Any]:
             "raw_state": {"error": repr(e)},
         }
 
-    # ===== 提取后端返回内容，喂给你现有的 UI =====
     final_answer: Dict[str, Any] = result_state.get("final_answer", {}) or {}
     spoken = final_answer.get("spoken_summary")
     detailed = final_answer.get("detailed_analysis")
@@ -133,7 +59,6 @@ def run_agent(query: str) -> Dict[str, Any]:
         or "I generated a result, but could not read the final answer."
     )
 
-    # 产品结果：优先用 reconciled_results，其次 rag_results/web_results
     products = (
         result_state.get("reconciled_results")
         or result_state.get("rag_results")
@@ -141,7 +66,6 @@ def run_agent(query: str) -> Dict[str, Any]:
         or []
     )
 
-    # node_logs → steps（给右边 expander 用）
     logs = result_state.get("node_logs") or []
     steps = [
         {"node": f"step_{i+1}", "summary": log}
