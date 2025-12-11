@@ -101,21 +101,24 @@ def run_agent(query: str) -> Dict[str, Any]:
 
 
 def render_agent_details(agent_result: Dict[str, Any]) -> None:
-    """Render reasoning, product table and citations inside a chat bubble."""
+    """Render reasoning, product table and citations inside a single expander."""
     steps: List[Dict[str, Any]] = agent_result.get("steps", [])
     products: List[Dict[str, Any]] = agent_result.get("products", [])
 
+    # 只保留这一层大 expander，不再嵌套
     with st.expander("🧠 Show reasoning & product details"):
         # 1) Step log
         st.markdown("#### 🪜 Agent Step Log")
         if not steps:
             st.write("No step log provided.")
         else:
+            # 用普通文本 / markdown 展示每一步，不再用小 expander
             for i, step in enumerate(steps, start=1):
                 node_name = step.get("node", f"step_{i}")
                 summary = step.get("summary", "")
-                with st.expander(f"{i}. {node_name}"):
-                    st.write(summary)
+                st.markdown(f"**{i}. {node_name}**")
+                st.write(summary)
+                st.markdown("---")
 
         # 2) Product comparison table
         st.markdown("#### 📊 Top-K Product Comparison")
@@ -155,6 +158,7 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
                 if url:
                     line_parts.append(f"[{title}]({url})")
                 st.markdown("- " + " — ".join(line_parts))
+
 
 
 def app() -> None:
