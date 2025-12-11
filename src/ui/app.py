@@ -218,24 +218,36 @@ def app() -> None:
     
         /* ===== Bottom chat input bar ===== */
     
-        /* Bar container */
+        /* Bar container: keep top line */
         [data-testid="stChatInput"] {
             background-color: #ffffff;
-            border-top: 1px solid #d0ddd4;
-            padding: 0.6rem 1.5rem;
+            border-top: 1px solid #d0ddd4;   /* keep this line */
+            padding: 0.9rem 1.5rem 1.2rem 1.5rem;
         }
     
-        /* Text area: full-width pill with aligned border */
+        /* Outer pill around the chat input */
+        [data-testid="stChatInput"] > div {
+            border-radius: 999px !important;
+            border: 1px solid #b7cbbf !important;  /* only one visible border */
+            box-shadow: none !important;
+            background-color: #f6f8fb !important;
+        }
+    
+        /* Text area: no own border, so it aligns with outer pill */
         [data-testid="stChatInput"] textarea {
+            border: none !important;
+            background-color: transparent !important;
+            box-shadow: none !important;
+            outline: none !important;
             width: 100% !important;
             box-sizing: border-box !important;
-            border-radius: 999px !important;
-            border: 1px solid #b7cbbf !important;
-            outline: none !important;
         }
     
-        /* Focus state: subtle teal glow */
-        [data-testid="stChatInput"] textarea:focus {
+        /* Focus state: subtle teal glow on the outer pill */
+        [data-testid="stChatInput"] textarea:focus-visible {
+            outline: none !important;
+        }
+        [data-testid="stChatInput"] > div:has(textarea:focus) {
             border-color: #88ada5 !important;
             box-shadow: 0 0 0 1px #88ada533;
         }
