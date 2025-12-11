@@ -195,49 +195,97 @@ def app() -> None:
     st.markdown(
         """
         <style>
-        /* Left sidebar background */
+        /* ===== Layout backgrounds ===== */
+    
+        /* Left sidebar: solid teal */
         [data-testid="stSidebar"] {
-            background-color: #88ada5ff;
+            background-color: #88ada5;
         }
-
-        /* Main app view (right side) background */
+    
+        /* Main app view (right side): very light greenish */
         [data-testid="stAppViewContainer"] {
-            background-color: #d9ead36b;
+            background-color: #f5faf4;
         }
-
-        /* Top header bar on the right */
-        [data-testid="stHeader"] {
-            background-color: #88ada5d2;
+    
+        /* Top app bar (make it blend into main background) */
+        header[data-testid="stHeader"] {
+            background-color: #f5faf4 !important;
+            box-shadow: none !important;
         }
-
-        /* Bottom chat input bar on the right */
+        header[data-testid="stHeader"] > div {
+            background-color: #f5faf4 !important;
+        }
+    
+        /* Bottom chat input bar */
         [data-testid="stChatInput"] {
-            background-color: #88ada5d2;
+            background-color: #ffffff;
+            border-top: 1px solid #d0ddd4;
         }
-
-        /* ===== Sidebar “bubble” cards ===== */
-
-        /* Audio recorder card inside the sidebar */
+    
+        /* ===== Sidebar cards (“bubbles”) ===== */
+    
+        /* Audio recorder card */
         [data-testid="stSidebar"] [data-testid="stAudioInput"] > div {
-            background-color: #d9ead36b !important;
+            background-color: #d9ead3 !important;
+            border-radius: 16px;
         }
-
-        /* File uploader card inside the sidebar */
+    
+        /* File uploader dropzone */
         [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
-            background-color: #d9ead36b !important;
+            background-color: #d9ead3 !important;
+            border-radius: 16px;
+            border: 1px dashed #b7cbbf;
         }
-
-        /* Buttons in the sidebar (Send voice / Clear conversation) */
+    
+        /* Sidebar buttons (Send voice / Clear conversation) */
         [data-testid="stSidebar"] .stButton > button {
-            background-color: #d9ead36b !important;
+            background-color: #d9ead3 !important;
+            color: #24332c !important;
             border-radius: 999px;
+            border: none;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+        }
+        [data-testid="stSidebar"] .stButton > button:hover {
+            background-color: #cfe3cc !important;
+        }
+    
+        /* ===== Chat bubbles ===== */
+    
+        /* Remove extra background on chat message container */
+        [data-testid="stChatMessage"] {
+            background-color: transparent;
+        }
+    
+        /* Inner content of each chat message as a rounded bubble */
+        [data-testid="stChatMessage"] > div {
+            border-radius: 16px;
+            padding: 0.75rem 1rem;
+            margin-bottom: 0.75rem;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+        }
+    
+        /* Heuristic: odd = user, even = assistant.
+           If it looks reversed in your app, just swap these two blocks. */
+    
+        /* User messages: white bubble */
+        [data-testid="stChatMessage"]:nth-of-type(odd) > div {
+            background-color: #ffffff;
+        }
+    
+        /* Assistant messages: soft green bubble */
+        [data-testid="stChatMessage"]:nth-of-type(even) > div {
+            background-color: #d9ead3;
+        }
+    
+        /* Chat input text area: rounded pill */
+        [data-testid="stChatInput"] textarea {
+            border-radius: 999px !important;
+            border: 1px solid #b7cbbf !important;
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
-
-
 
     st.title("🛒 Agentic Voice-to-Voice Product Discovery Assistant")
 
