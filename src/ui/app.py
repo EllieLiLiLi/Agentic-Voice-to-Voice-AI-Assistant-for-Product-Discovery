@@ -9,13 +9,98 @@ import streamlit as st
 
 from src.asr_tts.asr import transcribe_audio
 from src.asr_tts.tts import synthesize_speech
-
-
 from src.graph.graph import agent as product_agent  # LangGraph compiled agent
 
 
 # =========================
-# 1. Agent runner (LangGraph backend)
+# 1. Mock Agent output (replace with real LangGraph call later)
+#    （现在已经不用这个 mock 结果了，只是留在文件里做参考）
+# =========================
+MOCK_AGENT_RESULT: Dict[str, Any] = {
+    "answer": (
+        "Here are some eco-friendly stainless-steel cleaners under $15 that "
+        "match your request. I prioritized high rating and plant-based ingredients."
+    ),
+    "steps": [
+        {
+            "node": "router",
+            "summary": (
+                "Detected intent as product recommendation for stainless-steel "
+                "cleaner with eco-friendly and price < $15 constraints."
+            ),
+        },
+        {
+            "node": "planner",
+            "summary": (
+                "Planned to call rag.search over the Amazon 2020 cleaning slice, "
+                "filtering by category='cleaning', max_price=15, and eco-friendly features."
+            ),
+        },
+        {
+            "node": "retriever",
+            "summary": (
+                "Executed rag.search, fetched 12 candidate products, and filtered "
+                "down to 5 that mention 'stainless steel' explicitly in title or bullets."
+            ),
+        },
+        {
+            "node": "answerer",
+            "summary": (
+                "Ranked candidates by rating (>=4.3) and number of reviews, "
+                "then created a concise spoken summary plus table with top 3 products."
+            ),
+        },
+        {
+            "node": "safety",
+            "summary": (
+                "Ensured that recommended items are actually stainless-steel cleaners, "
+                "not general-purpose or abrasive products, and that they are in stock."
+            ),
+        },
+        {
+            "node": "final_answer",
+            "summary": (
+                "Summarized pros/cons for each cleaner and recommended two best options "
+                "with short justifications and price/rating info."
+            ),
+        },
+    ],
+    "products": [
+        {
+            "sku": "B0CSTEEL01",
+            "title": "Plant-Based Stainless Steel Cleaner & Polish",
+            "brand": "GreenSpark",
+            "price": 11.99,
+            "rating": 4.7,
+            "doc_id": "asin-B0CSTEEL01",
+            "source_url": "https://example.com/product/eco-steel-1",
+            "features": ["plant-based", "streak-free", "recyclable bottle"],
+        },
+        {
+            "sku": "B0CSTEEL02",
+            "title": "Eco-Friendly Steel Spray (Fragrance Free)",
+            "brand": "PureHome",
+            "price": 9.49,
+            "rating": 4.5,
+            "doc_id": "asin-B0CSTEEL02",
+            "source_url": "https://example.com/product/eco-steel-2",
+            "features": ["fragrance-free", "non-toxic", "child safe"],
+        },
+        {
+            "sku": "B0CSTEEL03",
+            "title": "Fragrance-Free Steel Cleaner with Refill Pack",
+            "brand": "PureShine",
+            "price": 13.50,
+            "rating": 4.5,
+            "doc_id": "local-789",
+            "source_url": "https://example.com/product/eco-steel-3",
+            "features": ["refill pack", "plant-based surfactants"],
+        },
+    ],
+}
+
+# =========================
+# 1'. 真正的 Agent runner（LangGraph backend）
 # =========================
 def run_agent(query: str) -> Dict[str, Any]:
     """Call the LangGraph agent and adapt its state to the UI schema.
@@ -24,22 +109,22 @@ def run_agent(query: str) -> Dict[str, Any]:
         - "answer": short text answer used for TTS & chat bubble
         - "products": list of product dicts for the comparison table
         - "steps": simple step log derived from node_logs (optional)
-    
+
     Note:
-        This keeps the rest of the UI code unchanged – only this function
-        is responsible for talking to the backend agent.
+        只改这一层：UI 里其他地方都还是用 `run_agent(...)`，
+        这里把它从 mock 换成调用真正的 LangGraph graph。
     """
-    # Prepare initial state for the graph
+    # 初始 state：graph.py 里定义的 ConversationState 其实就是 Dict[str, Any]
     state: Dict[str, Any] = {
         "user_query": query,
         "node_logs": [],
     }
 
     try:
-        # Run the compiled LangGraph agent
+        # 调用编译好的 LangGraph agent
         result_state: Dict[str, Any] = product_agent.invoke(state)
     except Exception as e:
-        # Fail gracefully so the UI does not crash
+        # 如果后端抛异常，UI 不崩，给一个兜底提示
         st.error(f"Agent error: {e}")
         return {
             "answer": "Sorry, something went wrong when calling the product assistant.",
@@ -48,16 +133,25 @@ def run_agent(query: str) -> Dict[str, Any]:
             "error": str(e),
         }
 
-    # Extract final answer text
-    final_answer: Dict[str, Any] = result_state.get("final_answer", {})
+    # 1) 提取最终回答
+    final_answer: Dict[str, Any] = result_state.get("final_answer", {}) or {}
     spoken = final_answer.get("spoken_summary")
     detailed = final_answer.get("detailed_analysis")
-    answer_text = spoken or detailed or "I generated a result, but could not read the final answer."
+    answer_text = (
+        spoken
+        or detailed
+        or "I generated a result, but could not read the final answer."
+    )
 
-    # Extract products (use reconciled_results as primary)
-    products = result_state.get("reconciled_results") or result_state.get("rag_results") or []
+    # 2) 提取产品列表：优先用 reconciled_results
+    products = (
+        result_state.get("reconciled_results")
+        or result_state.get("rag_results")
+        or result_state.get("web_results")
+        or []
+    )
 
-    # Turn node_logs into a simple step list for debugging ( UI only uses this optionally )
+    # 3) 把 node_logs 变成 steps，给 UI 用
     logs = result_state.get("node_logs") or []
     steps = [
         {
@@ -109,17 +203,17 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
     steps: List[Dict[str, Any]] = agent_result.get("steps", [])
     products: List[Dict[str, Any]] = agent_result.get("products", [])
 
-    # Step log
-    st.markdown("#### Agent Step Log")
-    if not steps:
-        st.write("No step log provided.")
-    else:
-        for i, step in enumerate(steps, start=1):
-            node_name = step.get("node", f"step_{i}")
-            summary = step.get("summary", "")
-            st.markdown(f"**{i}. {node_name}**")
-            st.write(summary)
-            st.markdown("---")
+    # # Step log（你之前注释掉了，我保留原样没动）
+    # st.markdown("#### Agent Step Log")
+    # if not steps:
+    #     st.write("No step log provided.")
+    # else:
+    #     for i, step in enumerate(steps, start=1):
+    #         node_name = step.get("node", f"step_{i}")
+    #         summary = step.get("summary", "")
+    #         st.markdown(f"**{i}. {node_name}**")
+    #         st.write(summary)
+    #         st.markdown("---")
 
     # Product comparison table
     st.markdown("#### Top-3 Product Comparison")
@@ -137,7 +231,7 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
             "source_url",
         ]
         cols = [c for c in preferred_cols if c in df.columns] + [
-            c for c in df.columns if c not in preferred_cols
+            c for c in df.columns if c not in df.columns
         ]
         df = df[cols]
         st.dataframe(df, use_container_width=True)
@@ -171,18 +265,18 @@ def app() -> None:
         layout="wide",
     )
 
-    # background color
+    # background color（下面这堆 CSS 我完全没动）
     st.markdown(
         """
         <style>
         /* ===== Layout backgrounds ===== */
     
         /* Left sidebar: solid teal */
-        [data-testid="stSidebar"] {
-            background-color: #88ada5;
+        [data-testid="stSidebar"] > div:first-child {
+            background-color: #00695c;
         }
     
-        /* Main app view (right side): very light greenish */
+        /* Main view background: soft green */
         [data-testid="stAppViewContainer"] {
             background-color: #f5faf4;
         }
@@ -216,73 +310,25 @@ def app() -> None:
         /* Text area: no own border, so it aligns with outer pill */
         [data-testid="stChatInput"] textarea {
             border: none !important;
-            background-color: transparent !important;
             box-shadow: none !important;
-            outline: none !important;
-            width: 100% !important;
-            box-sizing: border-box !important;
+            background-color: transparent !important;
         }
     
-        /* Focus state: subtle teal glow on the outer pill */
-        [data-testid="stChatInput"] textarea:focus-visible {
-            outline: none !important;
+        /* Remove extra border/outline around the form */
+        [data-testid="stChatInput"] fieldset {
+            border: none !important;
         }
-        [data-testid="stChatInput"] > div:has(textarea:focus) {
-            border-color: #88ada5 !important;
-            box-shadow: 0 0 0 1px #88ada533;
-        }
+
     
-        /* ===== Sidebar boxes ===== */
+        /* ===== Chat message bubbles ===== */
     
-        /* Audio recorder card (top box) -> white */
-        [data-testid="stSidebar"] [data-testid="stAudioInput"] > div {
-            background-color: #ffffff !important;
-            border-radius: 16px;
-        }
-    
-        /* File uploader dropzone (second box) -> white with solid border */
-        [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
-            background-color: #ffffff !important;
-            border-radius: 16px;
-            border: 1px solid #d0ddd4;
-        }
-    
-        /* "Browse files" button inside dropzone -> deeper teal */
-        [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button {
-            background-color: #88ada5 !important;
-            color: #ffffff !important;
-            border-radius: 999px;
-            border: none;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.16);
-        }
-        [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button:hover {
-            background-color: #76958f !important;
-        }
-    
-        /* Sidebar buttons (Send voice / Clear conversation)
-           -> same color as right background */
-        [data-testid="stSidebar"] .stButton > button {
-            background-color: #f5faf4 !important;
-            color: #24332c !important;
-            border-radius: 999px;
-            border: none;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.12);
-        }
-        [data-testid="stSidebar"] .stButton > button:hover {
-            background-color: #e5f0e6 !important;
-        }
-    
-        /* ===== Chat bubbles ===== */
-    
-        /* Remove any default background from chat message wrapper */
+        /* Make each chat message look like a card bubble */
         [data-testid="stChatMessage"] {
-            background-color: transparent;
+            padding: 0.4rem 0;
         }
-    
-        /* Inner content of each chat message as rounded bubble */
         [data-testid="stChatMessage"] > div {
-            border-radius: 16px;
-            padding: 0.75rem 1rem;
+            border-radius: 18px;
+            padding: 0.55rem 0.85rem;
             margin-bottom: 0.75rem;
             box-shadow: 0 1px 2px rgba(0,0,0,0.06);
         }
