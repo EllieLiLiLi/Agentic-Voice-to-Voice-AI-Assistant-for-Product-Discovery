@@ -130,7 +130,7 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
     products: List[Dict[str, Any]] = agent_result.get("products", [])
 
     # # Step log
-    # st.markdown("#### 🪜 Agent Step Log")
+    # st.markdown("#### Agent Step Log")
     # if not steps:
     #     st.write("No step log provided.")
     # else:
@@ -142,7 +142,7 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
     #         st.markdown("---")
 
     # Product comparison table
-    st.markdown("#### 📊 Top-K Product Comparison")
+    st.markdown("#### Top-3 Product Comparison")
     if not products:
         st.write("No products returned.")
     else:
@@ -163,7 +163,7 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
         st.dataframe(df, use_container_width=True)
 
     # Citations
-    st.markdown("#### 🔗 Citations")
+    st.markdown("#### Citations")
     if not products:
         st.write("No citations.")
     else:
@@ -431,8 +431,8 @@ Ask me via text or voice. I will provide a voice response along with optional te
                     st.write("No audio available for this answer.")
 
                 # 2) Dropdown with text + products + citations
-                with st.expander("🧠 Text answer & product details"):
-                    st.markdown("#### 📝 Answer")
+                with st.expander("Text answer & product details"):
+                    st.markdown("#### Answer")
                     st.markdown(msg.get("content", ""))
                     agent_result = msg.get("agent_result")
                     if agent_result:
