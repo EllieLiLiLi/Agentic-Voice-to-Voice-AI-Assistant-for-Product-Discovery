@@ -11,88 +11,68 @@ from src.asr_tts.asr import transcribe_audio
 from src.asr_tts.tts import synthesize_speech
 
 
-# =========================
-# 1. Mock Agent output (replace with real LangGraph call later)
-# =========================
-MOCK_AGENT_RESULT: Dict[str, Any] = {
-    "answer": (
-        "Here are some eco-friendly stainless-steel cleaners under $15 that "
-        "match your request. I prioritized high rating and plant-based ingredients."
-    ),
-    "steps": [
-        {
-            "node": "router",
-            "summary": (
-                "Detected intent as product recommendation for stainless-steel "
-                "cleaner with eco-friendly and price < $15 constraints."
-            ),
-        },
-        {
-            "node": "planner",
-            "summary": (
-                "Planned to call rag.search over the Amazon 2020 cleaning slice, "
-                "filtering by category='cleaning', max_price=15, and eco-friendly features."
-            ),
-        },
-        {
-            "node": "retriever",
-            "summary": (
-                "Retrieved top 5 items from local vector index and re-ranked them by "
-                "rating and price; cross-checked a couple of items with web.search."
-            ),
-        },
-        {
-            "node": "critic",
-            "summary": (
-                "Ensured that recommended items are actually stainless-steel cleaners, "
-                "not general-purpose or abrasive products, and that they are in stock."
-            ),
-        },
-        {
-            "node": "final_answer",
-            "summary": (
-                "Summarized pros/cons for each cleaner and recommended two best options "
-                "with short justifications and price/rating info."
-            ),
-        },
-    ],
-    "products": [
-        {
-            "sku": "B00ABC123",
-            "title": "Eco-Friendly Stainless Steel Cleaner Spray, 500ml",
-            "brand": "GreenShine",
-            "price": 12.99,
-            "rating": 4.7,
-            "doc_id": "local-123",
-            "source_url": "https://example.com/product/eco-steel-1",
-        },
-        {
-            "sku": "B00XYZ456",
-            "title": "Plant-Based Stainless Steel Wipes, 50 count",
-            "brand": "CleanLeaf",
-            "price": 9.49,
-            "rating": 4.4,
-            "doc_id": "local-456",
-            "source_url": "https://example.com/product/eco-steel-2",
-        },
-        {
-            "sku": "B00QWE789",
-            "title": "Fragrance-Free Steel Cleaner with Refill Pack",
-            "brand": "PureShine",
-            "price": 13.50,
-            "rating": 4.5,
-            "doc_id": "local-789",
-            "source_url": "https://example.com/product/eco-steel-3",
-        },
-    ],
-}
+from src.graph.graph import agent as product_agent  # LangGraph compiled agent
 
 
+# =========================
+# 1. Agent runner (LangGraph backend)
+# =========================
 def run_agent(query: str) -> Dict[str, Any]:
-    """Placeholder for your real LangGraph / RAG pipeline."""
-    result = dict(MOCK_AGENT_RESULT)
-    result["question"] = query
-    return result
+    """Call the LangGraph agent and adapt its state to the UI schema.
+
+    Returns a dict with keys:
+        - "answer": short text answer used for TTS & chat bubble
+        - "products": list of product dicts for the comparison table
+        - "steps": simple step log derived from node_logs (optional)
+    
+    Note:
+        This keeps the rest of the UI code unchanged – only this function
+        is responsible for talking to the backend agent.
+    """
+    # Prepare initial state for the graph
+    state: Dict[str, Any] = {
+        "user_query": query,
+        "node_logs": [],
+    }
+
+    try:
+        # Run the compiled LangGraph agent
+        result_state: Dict[str, Any] = product_agent.invoke(state)
+    except Exception as e:
+        # Fail gracefully so the UI does not crash
+        st.error(f"Agent error: {e}")
+        return {
+            "answer": "Sorry, something went wrong when calling the product assistant.",
+            "products": [],
+            "steps": [],
+            "error": str(e),
+        }
+
+    # Extract final answer text
+    final_answer: Dict[str, Any] = result_state.get("final_answer", {})
+    spoken = final_answer.get("spoken_summary")
+    detailed = final_answer.get("detailed_analysis")
+    answer_text = spoken or detailed or "I generated a result, but could not read the final answer."
+
+    # Extract products (use reconciled_results as primary)
+    products = result_state.get("reconciled_results") or result_state.get("rag_results") or []
+
+    # Turn node_logs into a simple step list for debugging ( UI only uses this optionally )
+    logs = result_state.get("node_logs") or []
+    steps = [
+        {
+            "node": f"step_{i+1}",
+            "summary": log,
+        }
+        for i, log in enumerate(logs)
+    ]
+
+    return {
+        "answer": answer_text,
+        "products": products,
+        "steps": steps,
+        "raw_state": result_state,
+    }
 
 
 # =========================
@@ -198,11 +178,11 @@ def app() -> None:
         /* ===== Layout backgrounds ===== */
     
         /* Left sidebar: solid teal */
-        [data-testid="stSidebar"] {
-            background-color: #88ada5;
+        [data-testid="stSidebar"] > div:first-child {
+            background-color: #00695c;
         }
     
-        /* Main app view (right side): very light greenish */
+        /* Main view background: soft green */
         [data-testid="stAppViewContainer"] {
             background-color: #f5faf4;
         }
@@ -236,73 +216,25 @@ def app() -> None:
         /* Text area: no own border, so it aligns with outer pill */
         [data-testid="stChatInput"] textarea {
             border: none !important;
-            background-color: transparent !important;
             box-shadow: none !important;
-            outline: none !important;
-            width: 100% !important;
-            box-sizing: border-box !important;
+            background-color: transparent !important;
         }
     
-        /* Focus state: subtle teal glow on the outer pill */
-        [data-testid="stChatInput"] textarea:focus-visible {
-            outline: none !important;
+        /* Remove extra border/outline around the form */
+        [data-testid="stChatInput"] fieldset {
+            border: none !important;
         }
-        [data-testid="stChatInput"] > div:has(textarea:focus) {
-            border-color: #88ada5 !important;
-            box-shadow: 0 0 0 1px #88ada533;
-        }
+
     
-        /* ===== Sidebar boxes ===== */
+        /* ===== Chat message bubbles ===== */
     
-        /* Audio recorder card (top box) -> white */
-        [data-testid="stSidebar"] [data-testid="stAudioInput"] > div {
-            background-color: #ffffff !important;
-            border-radius: 16px;
-        }
-    
-        /* File uploader dropzone (second box) -> white with solid border */
-        [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
-            background-color: #ffffff !important;
-            border-radius: 16px;
-            border: 1px solid #d0ddd4;
-        }
-    
-        /* "Browse files" button inside dropzone -> deeper teal */
-        [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button {
-            background-color: #88ada5 !important;
-            color: #ffffff !important;
-            border-radius: 999px;
-            border: none;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.16);
-        }
-        [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button:hover {
-            background-color: #76958f !important;
-        }
-    
-        /* Sidebar buttons (Send voice / Clear conversation)
-           -> same color as right background */
-        [data-testid="stSidebar"] .stButton > button {
-            background-color: #f5faf4 !important;
-            color: #24332c !important;
-            border-radius: 999px;
-            border: none;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.12);
-        }
-        [data-testid="stSidebar"] .stButton > button:hover {
-            background-color: #e5f0e6 !important;
-        }
-    
-        /* ===== Chat bubbles ===== */
-    
-        /* Remove any default background from chat message wrapper */
+        /* Make each chat message look like a card bubble */
         [data-testid="stChatMessage"] {
-            background-color: transparent;
+            padding: 0.4rem 0;
         }
-    
-        /* Inner content of each chat message as rounded bubble */
         [data-testid="stChatMessage"] > div {
-            border-radius: 16px;
-            padding: 0.75rem 1rem;
+            border-radius: 18px;
+            padding: 0.55rem 0.85rem;
             margin-bottom: 0.75rem;
             box-shadow: 0 1px 2px rgba(0,0,0,0.06);
         }
@@ -324,7 +256,6 @@ def app() -> None:
         unsafe_allow_html=True,
     )
 
-
     st.markdown(
         """
         <h2 style="
@@ -335,14 +266,16 @@ def app() -> None:
         ">
           Agentic Voice-to-Voice Product Discovery Assistant
         </h2>
+        <p style="
+            font-size: 0.95rem;
+            margin-bottom: 0.9rem;
+            color: #37474f;
+        ">
+          Ask about products by voice or text. The assistant will search our product catalog
+          and the web, then respond with a concise spoken answer plus detailed product info.
+        </p>
         """,
         unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        """
-Ask me via text or voice. I will provide a voice response along with optional text, product tables, and citations.
-"""
     )
 
     # ----- Session state -----
@@ -400,7 +333,6 @@ Ask me via text or voice. I will provide a voice response along with optional te
                             "audio_path": audio_path,
                         }
                     )
-                    st.success("Voice query sent to chatbot.")
                     st.rerun()
 
         st.markdown("---")
