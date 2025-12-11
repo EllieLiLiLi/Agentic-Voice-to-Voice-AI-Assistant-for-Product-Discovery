@@ -207,7 +207,7 @@ def app() -> None:
             background-color: #f5faf4;
         }
     
-        /* Top app bar */
+        /* Top app bar: blend into main background */
         header[data-testid="stHeader"] {
             background-color: #f5faf4 !important;
             box-shadow: none !important;
@@ -216,25 +216,43 @@ def app() -> None:
             background-color: #f5faf4 !important;
         }
     
-        /* Bottom chat input bar */
+        /* ===== Bottom chat input bar ===== */
+    
+        /* Bar container */
         [data-testid="stChatInput"] {
             background-color: #ffffff;
             border-top: 1px solid #d0ddd4;
+            padding: 0.6rem 1.5rem;
+        }
+    
+        /* Text area: full-width pill with aligned border */
+        [data-testid="stChatInput"] textarea {
+            width: 100% !important;
+            box-sizing: border-box !important;
+            border-radius: 999px !important;
+            border: 1px solid #b7cbbf !important;
+            outline: none !important;
+        }
+    
+        /* Focus state: subtle teal glow */
+        [data-testid="stChatInput"] textarea:focus {
+            border-color: #88ada5 !important;
+            box-shadow: 0 0 0 1px #88ada533;
         }
     
         /* ===== Sidebar boxes ===== */
     
-        /* 1) Audio recorder card (top box) -> white */
+        /* Audio recorder card (top box) -> white */
         [data-testid="stSidebar"] [data-testid="stAudioInput"] > div {
             background-color: #ffffff !important;
             border-radius: 16px;
         }
     
-        /* 2) File uploader dropzone (second box) -> white */
+        /* File uploader dropzone (second box) -> white with solid border */
         [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
             background-color: #ffffff !important;
             border-radius: 16px;
-            border: 1px dashed #d0ddd4;
+            border: 1px solid #d0ddd4;
         }
     
         /* "Browse files" button inside dropzone -> deeper teal */
@@ -249,7 +267,7 @@ def app() -> None:
             background-color: #76958f !important;
         }
     
-        /* 3 & 4) Sidebar buttons (Send voice / Clear conversation)
+        /* Sidebar buttons (Send voice / Clear conversation)
            -> same color as right background */
         [data-testid="stSidebar"] .stButton > button {
             background-color: #f5faf4 !important;
@@ -264,10 +282,12 @@ def app() -> None:
     
         /* ===== Chat bubbles ===== */
     
+        /* Remove any default background from chat message wrapper */
         [data-testid="stChatMessage"] {
             background-color: transparent;
         }
     
+        /* Inner content of each chat message as rounded bubble */
         [data-testid="stChatMessage"] > div {
             border-radius: 16px;
             padding: 0.75rem 1rem;
@@ -275,17 +295,17 @@ def app() -> None:
             box-shadow: 0 1px 2px rgba(0,0,0,0.06);
         }
     
-        /* Heuristic: odd = user, even = assistant */
+        /* Heuristic: odd = user, even = assistant.
+           If it looks reversed, swap these two blocks. */
+    
+        /* User messages: white bubble */
         [data-testid="stChatMessage"]:nth-of-type(odd) > div {
             background-color: #ffffff;
         }
+    
+        /* Assistant messages: soft green bubble */
         [data-testid="stChatMessage"]:nth-of-type(even) > div {
             background-color: #d9ead3;
-        }
-    
-        [data-testid="stChatInput"] textarea {
-            border-radius: 999px !important;
-            border: 1px solid #b7cbbf !important;
         }
         </style>
         """,
