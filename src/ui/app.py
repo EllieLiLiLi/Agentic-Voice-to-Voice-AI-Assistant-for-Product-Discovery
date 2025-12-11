@@ -7,7 +7,6 @@ from typing import Any, Dict, List
 import pandas as pd
 import streamlit as st
 
-# src.asr_tts.asr / tts
 from src.asr_tts.asr import transcribe_audio
 from src.asr_tts.tts import synthesize_speech
 
@@ -90,77 +89,102 @@ MOCK_AGENT_RESULT: Dict[str, Any] = {
 
 
 def run_agent(query: str) -> Dict[str, Any]:
-    """Placeholder for your real LangGraph / RAG pipeline.
-
-    For now it just returns a static mock result. Later you can replace
-    this with a real call and still keep the chatbot UI unchanged.
-    """
+    """Placeholder for your real LangGraph / RAG pipeline."""
     result = dict(MOCK_AGENT_RESULT)
     result["question"] = query
     return result
 
 
+# =========================
+# 2. Helper: synthesize TTS for each answer
+# =========================
+def synthesize_answer_audio(answer_text: str) -> str | None:
+    """Generate TTS for the answer and return the audio file path."""
+    if not answer_text:
+        return None
+
+    try:
+        audio_bytes_out = synthesize_speech(answer_text)
+    except Exception as e:
+        st.error(f"TTS error: {e}")
+        return None
+
+    out_dir = "tmp_tts"
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Use current message count to create a unique filename
+    msg_index = len(st.session_state.get("messages", []))
+    out_path = os.path.join(out_dir, f"reply_{msg_index}.mp3")
+    with open(out_path, "wb") as f:
+        f.write(audio_bytes_out)
+
+    return out_path
+
+
+# =========================
+# 3. Render details (no expander here!)
+# =========================
 def render_agent_details(agent_result: Dict[str, Any]) -> None:
-    """Render reasoning, product table and citations inside a single expander."""
+    """Render step log, product table and citations (no outer expander)."""
     steps: List[Dict[str, Any]] = agent_result.get("steps", [])
     products: List[Dict[str, Any]] = agent_result.get("products", [])
 
-    with st.expander("🧠 Show reasoning & product details"):
-        # 1) Step log
-        st.markdown("#### 🪜 Agent Step Log")
-        if not steps:
-            st.write("No step log provided.")
-        else:
-            for i, step in enumerate(steps, start=1):
-                node_name = step.get("node", f"step_{i}")
-                summary = step.get("summary", "")
-                st.markdown(f"**{i}. {node_name}**")
-                st.write(summary)
-                st.markdown("---")
+    # Step log
+    st.markdown("#### 🪜 Agent Step Log")
+    if not steps:
+        st.write("No step log provided.")
+    else:
+        for i, step in enumerate(steps, start=1):
+            node_name = step.get("node", f"step_{i}")
+            summary = step.get("summary", "")
+            st.markdown(f"**{i}. {node_name}**")
+            st.write(summary)
+            st.markdown("---")
 
-        # 2) Product comparison table
-        st.markdown("#### 📊 Top-K Product Comparison")
-        if not products:
-            st.write("No products returned.")
-        else:
-            df = pd.DataFrame(products)
-            preferred_cols = [
-                "sku",
-                "title",
-                "brand",
-                "price",
-                "rating",
-                "doc_id",
-                "source_url",
-            ]
-            cols = [c for c in preferred_cols if c in df.columns] + [
-                c for c in df.columns if c not in preferred_cols
-            ]
-            df = df[cols]
-            st.dataframe(df, use_container_width=True)
+    # Product comparison table
+    st.markdown("#### 📊 Top-K Product Comparison")
+    if not products:
+        st.write("No products returned.")
+    else:
+        df = pd.DataFrame(products)
+        preferred_cols = [
+            "sku",
+            "title",
+            "brand",
+            "price",
+            "rating",
+            "doc_id",
+            "source_url",
+        ]
+        cols = [c for c in preferred_cols if c in df.columns] + [
+            c for c in df.columns if c not in preferred_cols
+        ]
+        df = df[cols]
+        st.dataframe(df, use_container_width=True)
 
-        # 3) Citations
-        st.markdown("#### 🔗 Citations")
-        if not products:
-            st.write("No citations.")
-        else:
-            for p in products:
-                doc_id = p.get("doc_id")
-                url = p.get("source_url")
-                title = p.get("title") or p.get("sku")
-                if not (doc_id or url):
-                    continue
-                line_parts = []
-                if doc_id:
-                    line_parts.append(f"**doc_id:** `{doc_id}`")
-                if url:
-                    line_parts.append(f"[{title}]({url})")
-                st.markdown("- " + " — ".join(line_parts))
-
+    # Citations
+    st.markdown("#### 🔗 Citations")
+    if not products:
+        st.write("No citations.")
+    else:
+        for p in products:
+            doc_id = p.get("doc_id")
+            url = p.get("source_url")
+            title = p.get("title") or p.get("sku")
+            if not (doc_id or url):
+                continue
+            line_parts = []
+            if doc_id:
+                line_parts.append(f"**doc_id:** `{doc_id}`")
+            if url:
+                line_parts.append(f"[{title}]({url})")
+            st.markdown("- " + " — ".join(line_parts))
 
 
+# =========================
+# 4. Main app
+# =========================
 def app() -> None:
-    # ===== Page config =====
     st.set_page_config(
         page_title="Agentic Voice-to-Voice Product Assistant",
         page_icon="🛒",
@@ -171,26 +195,23 @@ def app() -> None:
 
     st.markdown(
         """
-This is now a **chatbot-style** UI:
+This is a **chatbot-style** UI:
 
-- 💬 Type your product questions at the bottom in the chat box
-- 🎙️ Or use the **voice tools in the sidebar** to send a spoken query
-- 🧠 The assistant replies in chat bubbles, with optional reasoning + product table
-
-Right now the agent answer is a **mock** result; later you can plug in your real
-LangGraph + RAG pipeline without changing the UI.
+- 💬 Ask questions via the chat box at the bottom
+- 🎙️ Or use voice input in the sidebar
+- 🔊 Each assistant reply automatically has a **voice answer**
+- ⬇️ Click the dropdown to see **text answer + product table + citations**
 """
     )
 
-    # ===== Session state =====
+    # ----- Session state -----
     if "messages" not in st.session_state:
-        st.session_state.messages = []  # list[dict]: {role, content, agent_result?}
-    if "audio_reply_path" not in st.session_state:
-        st.session_state.audio_reply_path = None
+        # Each message: {role, content, agent_result?, audio_path?}
+        st.session_state.messages: List[Dict[str, Any]] = []
 
-    # ===== Sidebar: voice input =====
+    # ----- Sidebar: voice input -----
     with st.sidebar:
-        st.header("🎙️ Voice input (optional)")
+        st.header("🎙️ Voice input")
         recorded_audio = st.audio_input("Record your question")
         st.markdown("—— or ——")
         audio_file = st.file_uploader(
@@ -217,63 +238,66 @@ LangGraph + RAG pipeline without changing the UI.
                 except Exception as e:
                     st.error(f"ASR error: {e}")
                 else:
-                    # Append user message
+                    # 1) Add user message
                     st.session_state.messages.append(
                         {"role": "user", "content": transcript}
                     )
 
-                    # Run agent (mock for now)
+                    # 2) Run agent
                     agent_result = run_agent(transcript)
+                    answer_text = agent_result.get("answer", "")
+
+                    # 3) Auto-generate TTS
+                    audio_path = synthesize_answer_audio(answer_text)
+
+                    # 4) Add assistant message with audio
                     st.session_state.messages.append(
                         {
                             "role": "assistant",
-                            "content": agent_result.get("answer", ""),
+                            "content": answer_text,
                             "agent_result": agent_result,
+                            "audio_path": audio_path,
                         }
                     )
                     st.success("Voice query sent to chatbot.")
+                    st.rerun()
 
         st.markdown("---")
         if st.button("🧹 Clear conversation"):
+            # Optional: try to clean up audio files
+            for msg in st.session_state.messages:
+                ap = msg.get("audio_path")
+                if ap and os.path.exists(ap):
+                    try:
+                        os.remove(ap)
+                    except OSError:
+                        pass
             st.session_state.messages = []
-            st.session_state.audio_reply_path = None
             st.rerun()
 
-    # ===== Main area: chat history =====
+    # ----- Main area: chat history -----
     for msg in st.session_state.messages:
         role = msg.get("role", "assistant")
-        content = msg.get("content", "")
         with st.chat_message("user" if role == "user" else "assistant"):
-            st.markdown(content)
-            if role == "assistant" and msg.get("agent_result"):
-                render_agent_details(msg["agent_result"])
+            if role == "user":
+                st.markdown(msg.get("content", ""))
+            else:
+                # 1) Voice answer
+                audio_path = msg.get("audio_path")
+                if audio_path and os.path.exists(audio_path):
+                    st.audio(audio_path)
+                else:
+                    st.write("No audio available for this answer.")
 
-    # Optional: TTS for the *last* assistant answer
-    last_assistant = None
-    for m in reversed(st.session_state.messages):
-        if m.get("role") == "assistant":
-            last_assistant = m
-            break
+                # 2) Dropdown with text + products + citations
+                with st.expander("🧠 Text answer & product details"):
+                    st.markdown("#### 📝 Answer")
+                    st.markdown(msg.get("content", ""))
+                    agent_result = msg.get("agent_result")
+                    if agent_result:
+                        render_agent_details(agent_result)
 
-    if last_assistant is not None and last_assistant.get("content"):
-        with st.expander("🔊 Optional: play TTS for last assistant answer"):
-            if st.button("Generate & play TTS for last answer"):
-                try:
-                    audio_bytes_out = synthesize_speech(last_assistant["content"])
-                    out_dir = "tmp_tts"
-                    os.makedirs(out_dir, exist_ok=True)
-                    out_path = os.path.join(out_dir, "last_answer.mp3")
-                    with open(out_path, "wb") as f:
-                        f.write(audio_bytes_out)
-                    st.session_state.audio_reply_path = out_path
-                    st.success(f"TTS synthesis completed. Saved to {out_path}")
-                except Exception as e:
-                    st.error(f"TTS error: {e}")
-
-            if st.session_state.audio_reply_path:
-                st.audio(st.session_state.audio_reply_path)
-
-    # ===== Chat input (text) at the bottom =====
+    # ----- Chat input (text) -----
     user_text = st.chat_input("Type your product question here…")
     if user_text:
         # 1) Add user message
@@ -281,16 +305,20 @@ LangGraph + RAG pipeline without changing the UI.
 
         # 2) Run agent
         agent_result = run_agent(user_text)
+        answer_text = agent_result.get("answer", "")
 
-        # 3) Add assistant message
+        # 3) Auto-generate TTS
+        audio_path = synthesize_answer_audio(answer_text)
+
+        # 4) Add assistant message with audio
         st.session_state.messages.append(
             {
                 "role": "assistant",
-                "content": agent_result.get("answer", ""),
+                "content": answer_text,
                 "agent_result": agent_result,
+                "audio_path": audio_path,
             }
         )
-
         st.rerun()
 
 
