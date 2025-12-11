@@ -1,21 +1,19 @@
-"""Streamlit UI for the agentic voice-to-voice assistant."""
+"""Streamlit UI for the agentic voice-to-voice assistant (chatbot style)."""
 from __future__ import annotations
+
+from typing import Any, Dict, List
 
 import io
 import os
-from typing import Any, Dict, List, Optional
-
-import pandas as pd
 import streamlit as st
+import pandas as pd
 
-# src.asr_tts.asr / tts
 from src.asr_tts.asr import transcribe_audio
 from src.asr_tts.tts import synthesize_speech
 
 
-# =========================
-# 1. 假的 Agent 返回（先撑起右侧 UI 的长相）
-# =========================
+# ==================== Mock Agent Result：先撑 UI ====================
+
 MOCK_AGENT_RESULT: Dict[str, Any] = {
     "answer": (
         "Here are some eco-friendly stainless-steel cleaners under $15 that "
@@ -40,7 +38,7 @@ MOCK_AGENT_RESULT: Dict[str, Any] = {
             "node": "retriever",
             "summary": (
                 "Retrieved top 5 items from local vector index and re-ranked them by "
-                "rating and price; cross-checked a couple of items with web.search."
+                "rating and price; cross-checked some items with web.search."
             ),
         },
         {
@@ -83,204 +81,190 @@ MOCK_AGENT_RESULT: Dict[str, Any] = {
 }
 
 
-def render_audio_uploader() -> Optional[bytes]:
-    """
-    左侧：上传或录音。这里先用最简单的 file_uploader。
-    （以后要换成真正录音组件也可以）
-    """
-    st.markdown("**Upload a short audio file (WAV / MP3 / M4A)**")
-    uploaded = st.file_uploader(
-        "Audio input", type=["wav", "mp3", "m4a"], accept_multiple_files=False
-    )
-    if uploaded is None:
-        return None
-    return uploaded.read()
-
+# ==================== 主应用（Chatbot UI） ====================
 
 def app() -> None:
-    # ========== 页面基本设置 ==========
     st.set_page_config(
-        page_title="Agentic Voice-to-Voice Product Assistant",
+        page_title="Agentic Voice Product Chat",
         page_icon="🛒",
         layout="wide",
     )
 
-    st.title("🛒 Agentic Voice-to-Voice Product Discovery Assistant")
+    st.title("🛒 Agentic Voice-to-Voice Product Assistant")
 
     st.markdown(
         """
 This UI currently uses:
 
-- ✅ **Real ASR** via `transcribe_audio` (OpenAI Whisper)
-- ✅ **Real TTS** via `synthesize_speech` (OpenAI TTS, mp3)
-- ⚠️ **Mock agent result** (LangGraph & RAG not wired yet)
+- ✅ **Real ASR / TTS** from `src/asr_tts`
+- ⚠️ **Mock agent result** (LangGraph & MCP not wired yet)
 
-Once the agent is ready, replace the mock with real calls.
+Once the agent is ready, replace the mock call with the real agent.
 """
     )
 
-    # ========== 初始化 session_state ==========
-    if "transcript" not in st.session_state:
-        st.session_state.transcript = ""
-    if "agent_result" not in st.session_state:
-        st.session_state.agent_result = None
-    if "audio_reply" not in st.session_state:
-        st.session_state.audio_reply = None
+    # ---------- 初始化状态 ----------
+    if "chat_history" not in st.session_state:
+        # 每条消息: {"role": "user"/"assistant", "content": str, "products"?: list, "steps"?: list}
+        st.session_state.chat_history: List[Dict[str, Any]] = []
 
-    # ========== 左右两栏布局 ==========
-    left_col, right_col = st.columns([1.1, 1.3])
+    if "pending_text" not in st.session_state:
+        st.session_state.pending_text = ""
 
-    # ==============================
-    # 左：音频 → ASR → Transcript → Mock Agent → TTS
-    # ==============================
-    with left_col:
-        st.subheader("🎙️ Voice Input & Controls")
-    
-        # 1) 在网页里录音（浏览器会弹出麦克风权限）
-        st.markdown("**Record your voice query**")
-        recorded_audio = st.audio_input("Click to start recording")
-    
+    if "last_agent_result" not in st.session_state:
+        st.session_state.last_agent_result: Dict[str, Any] | None = None
+
+    if "audio_reply_path" not in st.session_state:
+        st.session_state.audio_reply_path: str | None = None
+
+    # ========== 上半部分：聊天记录（chat bubbles） ==========
+    chat_container = st.container()
+    with chat_container:
+        for msg in st.session_state.chat_history:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+
+                # 产品推荐表格（可展开）
+                if msg.get("products"):
+                    with st.expander("📊 View recommended products"):
+                        df = pd.DataFrame(msg["products"])
+                        preferred_cols = [
+                            "sku",
+                            "title",
+                            "brand",
+                            "price",
+                            "rating",
+                            "doc_id",
+                            "source_url",
+                        ]
+                        cols = [c for c in preferred_cols if c in df.columns] + [
+                            c for c in df.columns if c not in preferred_cols
+                        ]
+                        st.dataframe(df[cols], use_container_width=True)
+
+                # LangGraph step log（可展开）
+                if msg.get("steps"):
+                    with st.expander("🪜 View reasoning steps"):
+                        for i, step in enumerate(msg["steps"], start=1):
+                            node = step.get("node", f"step_{i}")
+                            summary = step.get("summary", "")
+                            st.markdown(f"**{i}. {node}**")
+                            st.write(summary)
+
+    st.divider()
+
+    # ========== 下半部分：新的 query 输入区 ==========
+    st.subheader("🎙️ New voice query")
+
+    col_left, col_right = st.columns([1.1, 1.3])
+
+    # ---- 左侧：录音 / 上传 + ASR ----
+    with col_left:
+        st.markdown("**Record your voice**")
+        recorded_audio = st.audio_input("Tap to record")
+
         st.markdown("—— or — —")
-    
-        # 2) 备用：上传音频文件
-        audio_file = st.file_uploader(
-            "Upload a short voice query (WAV / MP3 / M4A)",
+
+        uploaded_audio = st.file_uploader(
+            "Upload audio (WAV / MP3 / M4A)",
             type=["wav", "mp3", "m4a"],
         )
-    
-        # 3) 运行 ASR：优先用录音，其次用上传文件
+
         if st.button("▶️ Run ASR"):
             audio_bytes = None
             filename = "recorded.wav"
-    
+
             if recorded_audio is not None:
-                # st.audio_input 返回的对象和 UploadedFile 类似，用 getvalue()/read 都行
+                # st.audio_input 返回的类似 UploadedFile，用 getvalue 拿 bytes
                 audio_bytes = recorded_audio.getvalue()
                 filename = "recorded.wav"
-            elif audio_file is not None:
-                audio_bytes = audio_file.read()
-                filename = audio_file.name
-    
+            elif uploaded_audio is not None:
+                audio_bytes = uploaded_audio.read()
+                filename = uploaded_audio.name
+
             if audio_bytes is None:
                 st.warning("Please record or upload an audio clip first.")
             else:
                 try:
                     transcript = transcribe_audio(audio_bytes, filename=filename)
-                    st.session_state.transcript = transcript
+                    st.session_state.pending_text = transcript
                     st.success("ASR completed.")
                 except Exception as e:
                     st.error(f"ASR error: {e}")
 
-
-        # 4) Transcript 文本框（可手动编辑）
-        st.markdown("### ✍️ Transcript (editable)")
-        st.session_state.transcript = st.text_area(
-            "You can edit or type your query here:",
-            value=st.session_state.transcript,
-            height=150,
+    # ---- 右侧：文本编辑 + 发送 & Agent + TTS ----
+    with col_right:
+        st.markdown("**✍️ Edit or type your query**")
+        st.session_state.pending_text = st.text_area(
+            "Query text",
+            value=st.session_state.pending_text,
+            height=100,
         )
 
-        # 5) 跑 Mock Agent（先把右边 UI 的“长相”撑出来）
-        if st.button("🤖 Run Mock Agent (fake LangGraph)"):
-            if not st.session_state.transcript.strip():
-                st.warning("Transcript is empty. Type something first.")
-            else:
-                st.session_state.agent_result = MOCK_AGENT_RESULT
-                st.success("Mock agent result loaded.")
+        send_col1, send_col2 = st.columns([1, 1])
 
-        # 6) 用 TTS 合成回答并播放（用 tts.py 里的 synthesize_speech）
-        agent_result = st.session_state.agent_result
-        if agent_result and agent_result.get("answer"):
-            st.markdown("### 🔊 TTS (play answer)")
-        
-            if st.button("Generate & Play Voice Reply"):
-                try:
-                    # 1. 调用你们的 TTS，拿到 bytes
-                    audio_bytes_out = synthesize_speech(agent_result["answer"])
-        
-                    # 2. 写到一个本地 mp3 文件
-                    out_dir = "tmp_tts"
-                    os.makedirs(out_dir, exist_ok=True)
-                    out_path = os.path.join(out_dir, "answer.mp3")
-                    with open(out_path, "wb") as f:
-                        f.write(audio_bytes_out)
-        
-                    # 3. 把路径存到 session_state 里
-                    st.session_state.audio_reply_path = out_path
-                    st.success(f"TTS synthesis completed. Saved to {out_path}")
-                except Exception as e:
-                    st.error(f"TTS error: {e}")
-        
-            # 4. 用路径播放（让浏览器自己识别格式）
-            if st.session_state.get("audio_reply_path"):
-                st.audio(st.session_state.audio_reply_path)
+        # 发送 + 调用 Mock Agent
+        with send_col1:
+            if st.button("💬 Send & Run Mock Agent", type="primary"):
+                user_text = st.session_state.pending_text.strip()
+                if not user_text:
+                    st.warning("Query is empty.")
+                else:
+                    # 1) push user 消息
+                    st.session_state.chat_history.append(
+                        {"role": "user", "content": user_text}
+                    )
 
-    # ==============================
-    # 右：Agent reasoning + Product table + Citations
-    # ==============================
-    with right_col:
-        st.subheader("🧠 Agent Reasoning & Product Results")
+                    # 2) 暂时用 MOCK_AGENT_RESULT，后续换成真实 LangGraph 调用
+                    agent_result = MOCK_AGENT_RESULT
+                    st.session_state.last_agent_result = agent_result
 
-        agent_result = st.session_state.agent_result
+                    # 3) 生成 assistant 消息
+                    assistant_text = agent_result.get("answer", "")
+                    st.session_state.chat_history.append(
+                        {
+                            "role": "assistant",
+                            "content": assistant_text,
+                            "products": agent_result.get("products", []),
+                            "steps": agent_result.get("steps", []),
+                        }
+                    )
 
-        if agent_result is None:
-            st.info("Click **Run Mock Agent** on the left to see example output.")
-            return
+                    # 4) 清空输入框
+                    st.session_state.pending_text = ""
 
-        # 1) Final Answer
-        st.markdown("### ✅ Final Answer")
-        st.write(agent_result.get("answer", ""))
+                    # 5) 立刻 rerun，让上面的聊天记录刷新
+                    st.experimental_rerun()
 
-        # 2) Step Log（LangGraph trace 的样子）
-        st.markdown("### 🪜 Agent Step Log (mock)")
-        steps: List[Dict[str, Any]] = agent_result.get("steps", [])
-        if not steps:
-            st.write("No step log provided.")
-        else:
-            for i, step in enumerate(steps, start=1):
-                node_name = step.get("node", f"step_{i}")
-                summary = step.get("summary", "")
-                with st.expander(f"{i}. {node_name}"):
-                    st.write(summary)
+        # TTS：针对最后一次 agent 回复
+        with send_col2:
+            if st.session_state.last_agent_result is not None:
+                if st.button("🔊 TTS for last reply"):
+                    try:
+                        answer_text = (
+                            st.session_state.last_agent_result.get("answer", "") or ""
+                        )
+                        if not answer_text.strip():
+                            st.warning("No answer text to synthesize.")
+                        else:
+                            audio_bytes_out = synthesize_speech(answer_text)
 
-        # 3) 产品对比表（mock）
-        st.markdown("### 📊 Top-K Product Comparison (mock)")
-        products: List[Dict[str, Any]] = agent_result.get("products", [])
-        if not products:
-            st.write("No products returned.")
-        else:
-            df = pd.DataFrame(products)
-            preferred_cols = [
-                "sku",
-                "title",
-                "brand",
-                "price",
-                "rating",
-                "doc_id",
-                "source_url",
-            ]
-            cols = [c for c in preferred_cols if c in df.columns] + [
-                c for c in df.columns if c not in preferred_cols
-            ]
-            df = df[cols]
-            st.dataframe(df, use_container_width=True)
+                            # 写文件再播，最稳
+                            out_dir = "tmp_tts"
+                            os.makedirs(out_dir, exist_ok=True)
+                            out_path = os.path.join(out_dir, "answer_last.mp3")
+                            with open(out_path, "wb") as f:
+                                f.write(audio_bytes_out)
 
-        # 4) Citations（doc_id + URL）
-        st.markdown("### 🔗 Citations")
-        if not products:
-            st.write("No citations.")
-        else:
-            for p in products:
-                doc_id = p.get("doc_id")
-                url = p.get("source_url")
-                title = p.get("title") or p.get("sku")
-                if doc_id or url:
-                    line = []
-                    if doc_id:
-                        line.append(f"**doc_id:** `{doc_id}`")
-                    if url:
-                        line.append(f"[{title}]({url})")
-                    st.markdown("- " + " — ".join(line))
+                            st.session_state.audio_reply_path = out_path
+                            st.success("TTS synthesis completed.")
+                    except Exception as e:
+                        st.error(f"TTS error: {e}")
+
+        # 播放区域
+        if st.session_state.get("audio_reply_path"):
+            st.markdown("**▶️ Play synthesized voice**")
+            st.audio(st.session_state.audio_reply_path)
 
 
 if __name__ == "__main__":  # pragma: no cover
