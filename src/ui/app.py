@@ -117,16 +117,16 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
     products: List[Dict[str, Any]] = agent_result.get("products", [])
 
     # # Step log（你之前注释掉了，我保留原样没动）
-    # st.markdown("#### Agent Step Log")
-    # if not steps:
-    #     st.write("No step log provided.")
-    # else:
-    #     for i, step in enumerate(steps, start=1):
-    #         node_name = step.get("node", f"step_{i}")
-    #         summary = step.get("summary", "")
-    #         st.markdown(f"**{i}. {node_name}**")
-    #         st.write(summary)
-    #         st.markdown("---")
+    st.markdown("#### Agent Step Log")
+    if not steps:
+        st.write("No step log provided.")
+    else:
+        for i, step in enumerate(steps, start=1):
+            node_name = step.get("node", f"step_{i}")
+            summary = step.get("summary", "")
+            st.markdown(f"**{i}. {node_name}**")
+            st.write(summary)
+            st.markdown("---")
 
     # Product comparison table
     st.markdown("#### Top-3 Product Comparison")
@@ -178,18 +178,18 @@ def app() -> None:
         layout="wide",
     )
 
-    # background color（下面这堆 CSS 我完全没动）
+    # background color
     st.markdown(
         """
         <style>
         /* ===== Layout backgrounds ===== */
     
         /* Left sidebar: solid teal */
-        [data-testid="stSidebar"] > div:first-child {
-            background-color: #00695c;
+        [data-testid="stSidebar"] {
+            background-color: #88ada5;
         }
     
-        /* Main view background: soft green */
+        /* Main app view (right side): very light greenish */
         [data-testid="stAppViewContainer"] {
             background-color: #f5faf4;
         }
@@ -223,25 +223,73 @@ def app() -> None:
         /* Text area: no own border, so it aligns with outer pill */
         [data-testid="stChatInput"] textarea {
             border: none !important;
-            box-shadow: none !important;
             background-color: transparent !important;
+            box-shadow: none !important;
+            outline: none !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
         }
     
-        /* Remove extra border/outline around the form */
-        [data-testid="stChatInput"] fieldset {
-            border: none !important;
+        /* Focus state: subtle teal glow on the outer pill */
+        [data-testid="stChatInput"] textarea:focus-visible {
+            outline: none !important;
         }
-
+        [data-testid="stChatInput"] > div:has(textarea:focus) {
+            border-color: #88ada5 !important;
+            box-shadow: 0 0 0 1px #88ada533;
+        }
     
-        /* ===== Chat message bubbles ===== */
+        /* ===== Sidebar boxes ===== */
     
-        /* Make each chat message look like a card bubble */
+        /* Audio recorder card (top box) -> white */
+        [data-testid="stSidebar"] [data-testid="stAudioInput"] > div {
+            background-color: #ffffff !important;
+            border-radius: 16px;
+        }
+    
+        /* File uploader dropzone (second box) -> white with solid border */
+        [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
+            background-color: #ffffff !important;
+            border-radius: 16px;
+            border: 1px solid #d0ddd4;
+        }
+    
+        /* "Browse files" button inside dropzone -> deeper teal */
+        [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button {
+            background-color: #88ada5 !important;
+            color: #ffffff !important;
+            border-radius: 999px;
+            border: none;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.16);
+        }
+        [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button:hover {
+            background-color: #76958f !important;
+        }
+    
+        /* Sidebar buttons (Send voice / Clear conversation)
+           -> same color as right background */
+        [data-testid="stSidebar"] .stButton > button {
+            background-color: #f5faf4 !important;
+            color: #24332c !important;
+            border-radius: 999px;
+            border: none;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+        }
+        [data-testid="stSidebar"] .stButton > button:hover {
+            background-color: #e5f0e6 !important;
+        }
+    
+        /* ===== Chat bubbles ===== */
+    
+        /* Remove any default background from chat message wrapper */
         [data-testid="stChatMessage"] {
-            padding: 0.4rem 0;
+            background-color: transparent;
         }
+    
+        /* Inner content of each chat message as rounded bubble */
         [data-testid="stChatMessage"] > div {
-            border-radius: 18px;
-            padding: 0.55rem 0.85rem;
+            border-radius: 16px;
+            padding: 0.75rem 1rem;
             margin-bottom: 0.75rem;
             box-shadow: 0 1px 2px rgba(0,0,0,0.06);
         }
@@ -259,6 +307,21 @@ def app() -> None:
             background-color: #d9ead3;
         }
         </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+    st.markdown(
+        """
+        <h2 style="
+            font-size: 1.35rem;
+            font-weight: 700;
+            margin-top: 0.5rem;
+            margin-bottom: 0.4rem;
+        ">
+          Agentic Voice-to-Voice Product Discovery Assistant
+        </h2>
         """,
         unsafe_allow_html=True,
     )
