@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import os
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -171,23 +172,28 @@ Once the agent is ready, replace the mock with real calls.
         agent_result = st.session_state.agent_result
         if agent_result and agent_result.get("answer"):
             st.markdown("### 🔊 TTS (play answer)")
+        
             if st.button("Generate & Play Voice Reply"):
                 try:
+                    # 1. 调用你们的 TTS，拿到 bytes
                     audio_bytes_out = synthesize_speech(agent_result["answer"])
-
-                    # ⭐ 调试：看类型和长度
-                    st.write(f"TTS type: {type(audio_bytes_out)}, len={len(audio_bytes_out)}")
-                    with open("debug_tts.mp3", "wb") as f:
+        
+                    # 2. 写到一个本地 mp3 文件
+                    out_dir = "tmp_tts"
+                    os.makedirs(out_dir, exist_ok=True)
+                    out_path = os.path.join(out_dir, "answer.mp3")
+                    with open(out_path, "wb") as f:
                         f.write(audio_bytes_out)
-            
-                    st.session_state.audio_reply = audio_bytes_out
-                    st.success("TTS synthesis completed.")
+        
+                    # 3. 把路径存到 session_state 里
+                    st.session_state.audio_reply_path = out_path
+                    st.success(f"TTS synthesis completed. Saved to {out_path}")
                 except Exception as e:
                     st.error(f"TTS error: {e}")
-
-            if st.session_state.audio_reply:
-                # 你的 synthesize_speech 返回的是 mp3 bytes
-                st.audio(st.session_state.audio_reply, format="audio/mp3")
+        
+            # 4. 用路径播放（让浏览器自己识别格式）
+            if st.session_state.get("audio_reply_path"):
+                st.audio(st.session_state.audio_reply_path)
 
     # ==============================
     # 右：Agent reasoning + Product table + Citations
