@@ -146,7 +146,7 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
             st.markdown("---")
 
     # ===== 1) Product Comparison =====
-    st.markdown("#### Top-3 Product Comparison")
+    st.markdown("#### Top-5 Product Comparison")
     if not products:
         st.write("No products returned.")
     else:
