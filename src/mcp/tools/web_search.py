@@ -1,95 +1,128 @@
-"""Web search MCP tool implemented with Tavily.
+"""Web search MCP tool implementation (Tavily).
 
-This module provides a defensive wrapper around the Tavily Search API and
-normalizes results for MCP clients. Missing API keys or provider errors return
-empty result sets with an error field instead of raising.
+Goal:
+- Provide a thin wrapper around Tavily web search.
+- Normalize results to a stable JSON shape for MCP clients.
+- Best-effort extract `price` from snippets so downstream can enforce budgets.
+
+Env:
+- TAVILY_API_KEY (preferred) or WEB_SEARCH_API_KEY (backward compatible)
 """
+
 from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, List
-
-try:
-    from tavily import TavilyClient
-except ImportError:  # pragma: no cover - optional dependency
-    TavilyClient = None
+import re
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_TOP_K = 5
 
+# Backward compatible env name (your earlier version used WEB_SEARCH_API_KEY)
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY") or os.getenv("WEB_SEARCH_API_KEY")
 
-def _normalize_result(item: Dict[str, Any]) -> Dict[str, Any]:
-    """Map Tavily fields into a consistent MCP response shape."""
 
-    title = item.get("title") or ""
-    url = item.get("url")
-    snippet = item.get("content") or item.get("snippet") or ""
+_PRICE_PATTERNS = [
+    # $12.99, $ 12, $12
+    re.compile(r"\$\s*(\d+(?:\.\d{1,2})?)", re.IGNORECASE),
+    # USD 12.99 / USD12.99
+    re.compile(r"\bUSD\s*(\d+(?:\.\d{1,2})?)\b", re.IGNORECASE),
+    # 12.99 USD
+    re.compile(r"\b(\d+(?:\.\d{1,2})?)\s*USD\b", re.IGNORECASE),
+    # 12 dollars
+    re.compile(r"\b(\d+(?:\.\d{1,2})?)\s*(?:dollars|usd)\b", re.IGNORECASE),
+]
 
-    score = item.get("score")
-    try:
-        score = float(score) if score is not None else None
-    except (TypeError, ValueError):
-        score = None
 
-    return {
-        "title": title,
-        "url": url,
-        "snippet": snippet,
-        "score": score,
-    }
+def _extract_price(text: str) -> Optional[float]:
+    """Best-effort extract a price from free text."""
+    if not text:
+        return None
+    for pat in _PRICE_PATTERNS:
+        m = pat.search(text)
+        if m:
+            try:
+                val = float(m.group(1))
+                # avoid absurd values from random numbers
+                if 0 < val < 10000:
+                    return val
+            except Exception:
+                continue
+    return None
+
+
+def _normalize_tavily_results(raw: Dict[str, Any], top_k: int) -> List[Dict[str, Any]]:
+    items = raw.get("results") or []
+    normalized: List[Dict[str, Any]] = []
+    for it in items[:top_k]:
+        title = (it.get("title") or "").strip()
+        url = (it.get("url") or "").strip()
+        snippet = (it.get("content") or it.get("snippet") or "").strip()
+        score = it.get("score")
+
+        price = _extract_price(title) or _extract_price(snippet)
+
+        normalized.append(
+            {
+                "title": title,
+                "url": url,
+                "snippet": snippet,
+                "price": price,  # float or None
+                "score": score,  # tavily similarity score if provided
+            }
+        )
+    return normalized
 
 
 def web_search(query: str, top_k: int = DEFAULT_TOP_K) -> Dict[str, Any]:
-    """Call Tavily search and normalize results for MCP clients.
-
-    Args:
-        query: Natural language query string.
-        top_k: Maximum number of results to return.
+    """Call Tavily web search and normalize results.
 
     Returns:
-        A JSON-serializable dictionary with the query, results, and optional
-        error message.
+        {
+          "query": str,
+          "results": [
+            {"title": str, "url": str, "snippet": str, "price": float|None, "score": float|None},
+            ...
+          ],
+          "error": str|None
+        }
     """
-
     if not query:
-        logger.warning("web.search called with empty query")
-        return {"query": query, "results": [], "error": "empty query"}
+        return {"query": query, "results": [], "error": None}
 
-    api_key = os.getenv("WEB_SEARCH_API_KEY")
-    if not api_key:
-        logger.warning("WEB_SEARCH_API_KEY not set; returning empty results")
+    if not TAVILY_API_KEY:
+        msg = "TAVILY_API_KEY (or WEB_SEARCH_API_KEY) not set; returning empty results"
+        logger.warning(msg)
         return {"query": query, "results": [], "error": "WEB_SEARCH_API_KEY not set"}
 
-    if TavilyClient is None:
-        logger.warning("tavily-python dependency not installed; returning empty results")
+    try:
+        # Import lazily so pytest collection doesn't require it.
+        from tavily import TavilyClient  # type: ignore
+    except Exception as e:
+        logger.exception("tavily-python not installed or failed to import")
         return {
             "query": query,
             "results": [],
-            "error": "tavily-python not installed",
+            "error": f"tavily import error: {e}",
         }
 
     try:
-        client = TavilyClient(api_key=api_key)
-    except Exception as exc:  # pragma: no cover - init errors
-        logger.warning("Failed to initialize Tavily client: %s", exc)
-        return {"query": query, "results": [], "error": str(exc)}
+        client = TavilyClient(api_key=TAVILY_API_KEY)
 
-    try:
-        response = client.search(query=query, max_results=top_k)
-    except Exception as exc:  # pragma: no cover - network/API errors
-        logger.warning("web.search request failed: %s", exc)
-        return {"query": query, "results": [], "error": str(exc)}
+        # Tavily returns: {"query": ..., "results":[{title,url,content,score,...}], ...}
+        raw = client.search(
+            query=query,
+            max_results=top_k,
+            include_answer=False,
+            include_raw_content=False,
+        )
 
-    raw_results: List[Dict[str, Any]] = []
-    if isinstance(response, dict):
-        raw_results = response.get("results", []) or []
+        results = _normalize_tavily_results(raw, top_k=top_k)
+        logger.info("web.search returned %d results for query '%s'", len(results), query)
+        return {"query": query, "results": results, "error": None}
 
-    normalized = [_normalize_result(item) for item in raw_results[:top_k]]
-    logger.info("web.search returned %d results for query '%s'", len(normalized), query)
-
-    return {"query": query, "results": normalized}
-
-
-__all__ = ["web_search"]
+    except Exception as e:
+        logger.exception("web.search request failed")
+        return {"query": query, "results": [], "error": str(e)}
