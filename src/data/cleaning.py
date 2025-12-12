@@ -109,42 +109,6 @@ def _parse_price(series: pd.Series) -> pd.Series:
     price = pd.to_numeric(cleaned, errors="coerce")
     return price
 
-# def clean_dataframe(
-#     df: pd.DataFrame,
-#     allowed_keywords: Optional[Sequence[str]] = None,  # kept for backward compatibility; ignored
-#     price_cap_quantile: float = 0.99,
-# ) -> pd.DataFrame:
-#     """Apply filtering and cleaning rules to the dataframe."""
-
-#     df = select_and_normalize_columns(df)
-
-#     # Drop rows missing critical fields
-#     before = len(df)
-#     df = df.dropna(subset=[col for col in CRITICAL_FIELDS if col in df.columns])
-#     logger.info("Dropped %d rows missing critical fields", before - len(df))
-
-#     # Normalize price to float
-#     if "price" in df.columns:
-#         df["price"] = pd.to_numeric(df["price"], errors="coerce")
-#         before_price = len(df)
-#         df = df.dropna(subset=["price"])
-#         logger.info("Dropped %d rows with invalid price", before_price - len(df))
-
-#         if price_cap_quantile:
-#             cap_value = df["price"].quantile(price_cap_quantile)
-#             df.loc[df["price"] > cap_value, "price"] = cap_value
-#             logger.info("Capped price at %.2f (quantile %.2f)", cap_value, price_cap_quantile)
-
-#     # Normalize rating to float if present
-#     if "rating" in df.columns:
-#         df["rating"] = pd.to_numeric(df["rating"], errors="coerce")
-
-#     df = filter_toys_category(df)
-
-#     df = df.reset_index(drop=True)
-#     logger.info("Final cleaned dataset has %d rows and columns %s", len(df), list(df.columns))
-#     return df
-
 # Add Price & Description:
 
 def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
