@@ -15,6 +15,6 @@ if __name__ == "__main__":
     # Import inside main to avoid pulling optional dependencies during test collection
     from src.mcp.tools.web_search import web_search
 
-    query = "latest toys trend for 3 year old girls"
+    query = "what is the trending toys?"
     result = web_search(query=query)
     pprint(result)
