@@ -54,7 +54,7 @@ def _flatten_results(results: Dict[str, Any]) -> List[Dict[str, Any]]:
             price = meta.get("price")
             url = meta.get("url")
 
-            # 距离越小越相似，这里简单转成一个 0~1 的 score，防止除以 0
+        
             score = None
             if distance is not None:
                 score = max(0.0, 1.0 - float(distance))
