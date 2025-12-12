@@ -21,11 +21,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 DEFAULT_TOP_K = 5
-ALLOWED_DOMAINS = [
-    "amazon.com",
-    "walmart.com",
-    "target.com",
-]
+ALLOWED_DOMAINS = ["amazon.com", "walmart.com", "target.com"]
 
 # Backward compatible env name (your earlier version used WEB_SEARCH_API_KEY)
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY") or os.getenv("WEB_SEARCH_API_KEY")
@@ -59,6 +55,17 @@ def _extract_price(text: str) -> Optional[float]:
             except Exception:
                 continue
     return None
+
+
+def _is_allowed_domain(url: str) -> bool:
+    """Return True if the URL's host matches an approved retail domain."""
+    hostname = urlparse(url).hostname or ""
+    hostname = hostname.lower()
+
+    # Exact domain or subdomain match only (avoid fooamazon.com false positives)
+    return any(
+        hostname == allowed or hostname.endswith(f".{allowed}") for allowed in ALLOWED_DOMAINS
+    )
 
 
 # -------------------------
@@ -104,9 +111,8 @@ def _normalize_tavily_results(raw: Dict[str, Any], top_k: int) -> List[Dict[str,
         snippet = (it.get("content") or it.get("snippet") or "").strip()
         score = it.get("score")
 
-        domain = urlparse(url).netloc.lower()
-        if not any(domain.endswith(allowed) for allowed in ALLOWED_DOMAINS):
-            logger.debug("Skipping non-retail domain: %s", domain)
+        if not _is_allowed_domain(url):
+            logger.debug("Skipping non-retail domain: %s", url)
             continue
 
         # First try to extract price from tavily snippet/title
