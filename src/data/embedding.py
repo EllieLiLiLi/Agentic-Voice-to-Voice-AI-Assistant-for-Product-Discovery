@@ -9,27 +9,38 @@ from openai import OpenAI
 logger = logging.getLogger(__name__)
 
 
+def _build_product_document(row) -> str:
+    """Build the text that will be sent to the embedding model for one product."""
+
+    parts = [
+        row.get("title", ""),
+        f"Brand: {row.get('brand', '')}",
+        f"Category: {row.get('category', '')}",
+    ]
+
+    price = row.get("price")
+    # avoid NaN
+    if price is not None and price == price:
+        parts.append(f"Price: ${float(price):.2f}")
+
+    desc = row.get("description")
+    if isinstance(desc, str) and desc.strip():
+        parts.append(f"Details: {desc.strip()}")
+
+    return " | ".join(parts)
+
+
 def make_document(row: pd.Series) -> str:
     """
     Build a text document from a cleaned row of the dataframe.
-    The cleaned dataframe only has: ['title', 'brand', 'category'].
-    Use these, ignore nulls, join into one string via ' | '.
+    The cleaned dataframe only has: ['title', 'brand', 'category', 'price', 'url', 'description'].
+    Build a rich document including core product details.
     Return an empty string if nothing is usable.
     """
 
-    text_columns: List[str] = ["title", "brand", "category"]
-    parts: List[str] = []
-
-    for col in text_columns:
-        if col in row.index:
-            val = row[col]
-            if pd.notna(val):
-                text = str(val).strip()
-                if text:
-                    parts.append(text)
-
-    doc = " | ".join(parts).strip()
-    return doc[:8000] if doc else ""
+    doc = _build_product_document(row)
+    doc = doc[:8000].strip()
+    return doc if doc else ""
 
 
 def chunk_list(items: List, chunk_size: int):
@@ -68,16 +79,33 @@ def build_vector_index(
     valid_documents: List[str] = []
     valid_metadatas: List[dict] = []
 
-    for idx, row in cleaned_df.iterrows():
-        doc = make_document(row)
+    rows = list(cleaned_df.iterrows())
+    documents = [_build_product_document(row) for _, row in rows]
+
+    for (idx, row), doc in zip(rows, documents):
+        doc = doc.strip()
         if not doc:
             continue
 
         doc_id = f"prod-{idx}"
+        price_val = row.get("price")
+        price_clean = None
+        if price_val is not None and not pd.isna(price_val):
+            try:
+                price_clean = float(price_val)
+            except (TypeError, ValueError):
+                price_clean = None
+
+        url_val = row.get("url", "")
+        if pd.isna(url_val):
+            url_val = ""
+
         metadata = {
-            "title": row.get("title"),
-            "brand": row.get("brand"),
-            "category": row.get("category"),
+            "title": row.get("title", ""),
+            "brand": row.get("brand", ""),
+            "category": row.get("category", ""),
+            "price": float(row["price"]) if not pd.isna(row["price"]) else None,
+            "url": row.get("url", ""),
         }
 
         valid_ids.append(doc_id)
