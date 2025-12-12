@@ -415,6 +415,15 @@ def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
         state["node_logs"].append("[Planner] Out of scope - no search plan needed")
         logger.info("Out of scope - skipping search")
         return state
+
+    # Honor a user toggle that disables web search entirely
+    if state.get("force_rag_only"):
+        state["search_strategy"] = "rag_only"
+        state["plan"] = ["rag.search"]
+        state["search_params"] = {"top_k": 5, "filters": constraints}
+        state["node_logs"].append("[Planner] Forced RAG-only (web search disabled by user)")
+        logger.info("Planner forced to rag_only by user preference")
+        return state
     
     try:
         # Build context for planner

@@ -21,7 +21,7 @@ from src.graph.nodes import (
 # =========================
 # 1'. Agent runner（LangGraph backend）
 # =========================
-def run_agent(query: str) -> Dict[str, Any]:
+def run_agent(query: str, force_rag_only: bool = False) -> Dict[str, Any]:
     """Run the toy product assistant by calling the 4 LangGraph nodes in order.
 
     Router → Planner → Retriever → Answerer
@@ -41,6 +41,7 @@ def run_agent(query: str) -> Dict[str, Any]:
         "final_answer": {},
         "citations": [],
         "node_logs": [],
+        "force_rag_only": force_rag_only,
     }
 
     try:
@@ -200,6 +201,13 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
         return None
 
     raw_state = agent_result.get("raw_state", {}) or {}
+
+    search_strategy = raw_state.get("search_strategy")
+    if search_strategy:
+        note = f"Search strategy: **{search_strategy}**"
+        if raw_state.get("force_rag_only"):
+            note += " (web search disabled by user)"
+        st.caption(note)
 
     base_citations: List[Dict[str, Any]] = raw_state.get("citations", []) or agent_result.get(
         "citations", []
@@ -490,6 +498,9 @@ def app() -> None:
     )
 
 
+    if "force_rag_only" not in st.session_state:
+        st.session_state.force_rag_only = False
+
     st.markdown(
         """
         <h2 style="
@@ -507,6 +518,7 @@ def app() -> None:
         ">
           Ask about products by voice or text. The assistant will search our product catalog
           and the web, then respond with a concise spoken answer plus detailed product info.
+          Use the sidebar toggle if you want to stick to catalog-only RAG (no web search).
         </p>
         """,
         unsafe_allow_html=True,
@@ -519,6 +531,13 @@ def app() -> None:
 
     # ----- Sidebar: voice input -----
     with st.sidebar:
+        st.subheader("Search options")
+        st.session_state.force_rag_only = st.checkbox(
+            "Use catalog only (disable web search)",
+            value=st.session_state.force_rag_only,
+            help="Forces RAG-only retrieval so web search is skipped.",
+        )
+
         st.header("🎙️ Voice input")
         recorded_audio = st.audio_input("Record your question")
         st.markdown("—— or ——")
@@ -552,7 +571,10 @@ def app() -> None:
                     )
 
                     # 2) Run agent
-                    agent_result = run_agent(transcript)
+                    agent_result = run_agent(
+                        transcript,
+                        force_rag_only=st.session_state.get("force_rag_only", False),
+                    )
                     answer_text = agent_result.get("answer", "")
 
                     # 3) Auto-generate TTS
@@ -615,7 +637,10 @@ def app() -> None:
         st.session_state.messages.append({"role": "user", "content": user_text})
 
         # 2) Run agent
-        agent_result = run_agent(user_text)
+        agent_result = run_agent(
+            user_text,
+            force_rag_only=st.session_state.get("force_rag_only", False),
+        )
         answer_text = agent_result.get("answer", "")
 
         # 3) Auto-generate TTS
