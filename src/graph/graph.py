@@ -1,15 +1,16 @@
 """LangGraph assembly for the agentic product discovery assistant."""
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
+from typing_extensions import TypedDict
 
 from langgraph.graph import END, StateGraph
 
 from src.graph.nodes import answerer_node, planner_node, retriever_node, router_node
 
 
-class ConversationState(Dict[str, Any]):
-    """Simple state container for LangGraph execution.
+class ConversationState(TypedDict, total=False):
+    """State container for LangGraph execution.
     
     State fields:
         user_query: str - Original user query
@@ -27,7 +28,20 @@ class ConversationState(Dict[str, Any]):
         timestamp: Optional[str] - ISO format timestamp
         node_logs: Optional[List[str]] - Execution trace logs
     """
-    pass
+    user_query: str
+    intent: Optional[Dict]
+    constraints: Optional[Dict]
+    safety_flags: Optional[List[str]]
+    plan: Optional[List[str]]
+    search_strategy: Optional[str]
+    search_params: Optional[Dict]
+    rag_results: Optional[List[Dict]]
+    web_results: Optional[List[Dict]]
+    reconciled_results: Optional[List[Dict]]
+    final_answer: Optional[Dict]
+    citations: Optional[List[Dict]]
+    timestamp: Optional[str]
+    node_logs: Optional[List[str]]
 
 
 def should_continue_after_router(state: ConversationState) -> str:
