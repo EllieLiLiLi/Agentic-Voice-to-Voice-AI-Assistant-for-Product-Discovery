@@ -19,12 +19,12 @@ from src.graph.nodes import (
 
 # =========================
 # =========================
-# 1'. 真正的 Agent runner（LangGraph backend）
+# 1'. Agent runner（LangGraph backend）
 # =========================
 def run_agent(query: str) -> Dict[str, Any]:
     """Run the toy product assistant by calling the 4 LangGraph nodes in order.
 
-    只在 UI 里把 nodes 串起来：Router → Planner → Retriever → Answerer。
+    Router → Planner → Retriever → Answerer
     """
 
     # 初始 state：等价于你之前传给 graph 的内容
@@ -47,7 +47,7 @@ def run_agent(query: str) -> Dict[str, Any]:
         # 1) Router
         state = router_node(state)
 
-        # 如果 router 判定 out_of_scope，直接跳过后面的搜索节点
+        # if router returns out_of_scope，skip
         if state.get("intent", {}).get("type") != "out_of_scope":
             # 2) Planner
             state = planner_node(state)
@@ -175,6 +175,10 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
 
     # ===== 2) Citations：标题 + URL =====
     raw_state = agent_result.get("raw_state", {}) or {}
+
+    # 🌟 Debug 2：看 raw_state 里有没有 citations
+    st.write("DEBUG raw_state.citations:", raw_state.get("citations"))
+
     citations: List[Dict[str, Any]] = raw_state.get("citations", []) or agent_result.get(
         "citations", []
     )
