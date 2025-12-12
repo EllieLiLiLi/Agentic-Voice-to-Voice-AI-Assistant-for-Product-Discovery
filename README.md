@@ -1,8 +1,26 @@
 # Agentic Voice-to-Voice AI Assistant for Product Discovery
 
+🎤🧠🔍 *An agentic, multimodal, end-to-end voice assistant for product search and discovery.*
+
+## 🌟 Overview
 This project scaffolds a voice-first, multi-agent assistant that helps users discover products using a private slice of the Amazon Product Dataset 2020. The stack combines LangGraph for orchestration, an MCP server for tool exposure, local RAG over a vector index, optional live web search, ASR/TTS for voice I/O, and a Streamlit UI.
 
-## Repository Layout
+Built with:
+- OpenAI Realtime API for ASR & TTS  
+- LangGraph for multi-agent orchestration  
+- RAG pipelines over the Amazon Product Dataset  
+- MCP Tools for vector search and web search  
+- Streamlit UI for mic capture, logs, and product tables
+
+## ✨ Key Features
+- 🎙 Voice Input → Voice Output  
+- 🧠 Multi-agent workflow  
+- 🔎 Hybrid Retrieval (RAG + Web Search)  
+- 📚 Amazon Product Dataset 2020 support  
+- 📈 Streamlit UI with transcripts, logs, and citations  
+- 🧪 Test scaffolding included
+
+## 📂 Repository Layout
 
 - `src/`
   - `config.py`: Environment-driven configuration bundle for LLMs, audio, and data paths.
@@ -19,10 +37,12 @@ This project scaffolds a voice-first, multi-agent assistant that helps users dis
 - `.env.example`: Template for required environment variables.
 - `requirements.txt`: Python dependencies for the project.
 
-## Getting Started
+## 🚀 Getting Started
 
 1. Create a virtual environment and install dependencies:
    ```bash
+   git clone https://github.com/EllieLiLiLi/Agentic-Voice-to-Voice-AI-Assistant-for-Product-Discovery.git
+   cd Agentic-Voice-to-Voice-AI-Assistant-for-Product-Discovery
    python -m venv .venv
    source .venv/bin/activate
    pip install -r requirements.txt
@@ -37,7 +57,7 @@ This project scaffolds a voice-first, multi-agent assistant that helps users dis
    streamlit run src/ui/app.py
    ```
 
-## Running the RAG Index & Web Search Tools Locally
+## ▶️ Running the RAG Index & Web Search Tools Locally
 
 ### Installation
 
@@ -95,7 +115,7 @@ Expected: prints normalized Tavily search results for the sample query.
 - `web.search` returns empty results → confirm `WEB_SEARCH_API_KEY` is set and valid.
 - Import errors or module not found → run commands from the project root so Python resolves `src/` correctly.
 
-## Notes
+## 📖 Notes
 
 - Real API keys must be supplied via environment variables or a local `.env` file. Do **not** hardcode secrets.
 - TODO comments across the codebase indicate where to plug in concrete implementations for dataset handling, vector search, LangGraph logic, ASR/TTS providers, and MCP plumbing.
