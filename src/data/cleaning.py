@@ -100,38 +100,113 @@ def filter_toys_category(df: pd.DataFrame) -> pd.DataFrame:
     return filtered
 
 
-def clean_dataframe(
-    df: pd.DataFrame,
-    allowed_keywords: Optional[Sequence[str]] = None,  # kept for backward compatibility; ignored
-    price_cap_quantile: float = 0.99,
-) -> pd.DataFrame:
-    """Apply filtering and cleaning rules to the dataframe."""
+def _parse_price(series: pd.Series) -> pd.Series:
+    cleaned = (
+        series.astype(str)
+        .str.replace(r"[^0-9.]", "", regex=True)
+        .str.strip()
+    )
+    price = pd.to_numeric(cleaned, errors="coerce")
+    return price
 
-    df = select_and_normalize_columns(df)
+# def clean_dataframe(
+#     df: pd.DataFrame,
+#     allowed_keywords: Optional[Sequence[str]] = None,  # kept for backward compatibility; ignored
+#     price_cap_quantile: float = 0.99,
+# ) -> pd.DataFrame:
+#     """Apply filtering and cleaning rules to the dataframe."""
 
-    # Drop rows missing critical fields
-    before = len(df)
-    df = df.dropna(subset=[col for col in CRITICAL_FIELDS if col in df.columns])
-    logger.info("Dropped %d rows missing critical fields", before - len(df))
+#     df = select_and_normalize_columns(df)
 
-    # Normalize price to float
-    if "price" in df.columns:
-        df["price"] = pd.to_numeric(df["price"], errors="coerce")
-        before_price = len(df)
-        df = df.dropna(subset=["price"])
-        logger.info("Dropped %d rows with invalid price", before_price - len(df))
+#     # Drop rows missing critical fields
+#     before = len(df)
+#     df = df.dropna(subset=[col for col in CRITICAL_FIELDS if col in df.columns])
+#     logger.info("Dropped %d rows missing critical fields", before - len(df))
 
-        if price_cap_quantile:
-            cap_value = df["price"].quantile(price_cap_quantile)
-            df.loc[df["price"] > cap_value, "price"] = cap_value
-            logger.info("Capped price at %.2f (quantile %.2f)", cap_value, price_cap_quantile)
+#     # Normalize price to float
+#     if "price" in df.columns:
+#         df["price"] = pd.to_numeric(df["price"], errors="coerce")
+#         before_price = len(df)
+#         df = df.dropna(subset=["price"])
+#         logger.info("Dropped %d rows with invalid price", before_price - len(df))
 
-    # Normalize rating to float if present
-    if "rating" in df.columns:
-        df["rating"] = pd.to_numeric(df["rating"], errors="coerce")
+#         if price_cap_quantile:
+#             cap_value = df["price"].quantile(price_cap_quantile)
+#             df.loc[df["price"] > cap_value, "price"] = cap_value
+#             logger.info("Capped price at %.2f (quantile %.2f)", cap_value, price_cap_quantile)
 
-    df = filter_toys_category(df)
+#     # Normalize rating to float if present
+#     if "rating" in df.columns:
+#         df["rating"] = pd.to_numeric(df["rating"], errors="coerce")
 
-    df = df.reset_index(drop=True)
-    logger.info("Final cleaned dataset has %d rows and columns %s", len(df), list(df.columns))
-    return df
+#     df = filter_toys_category(df)
+
+#     df = df.reset_index(drop=True)
+#     logger.info("Final cleaned dataset has %d rows and columns %s", len(df), list(df.columns))
+#     return df
+
+# Add Price & Description:
+
+def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    logger.info("Columns: %s", df.columns.tolist())
+
+    mask_toys = df["Category"].astype(str).str.contains(
+        TOYS_CATEGORY_KEYWORD, na=False
+    )
+    df = df[mask_toys]
+    logger.info(
+        "Filtered rows by category '%s': %d",
+        TOYS_CATEGORY_KEYWORD,
+        len(df),
+    )
+
+    critical_cols = [
+        "Product Name",
+        "Brand Name",
+        "Category",
+        "Selling Price",  
+    ]
+    df = df.dropna(subset=critical_cols)
+    logger.info("After dropping NaNs in %s: %d", critical_cols, len(df))
+
+    df["price"] = _parse_price(df["Selling Price"])
+    df = df[df["price"].notna()]
+    logger.info("After parsing price: %d", len(df))
+
+    text_cols = [
+        "Product Description",
+        "Product Details",
+        "About Product",
+        "Product Specification",
+    ]
+    for col in text_cols:
+        if col not in df.columns:
+            df[col] = ""
+
+    df[text_cols] = df[text_cols].fillna("")
+
+    df["description"] = (
+        df[text_cols]
+        .agg(" ".join, axis=1)
+        .str.replace(r"\s+", " ", regex=True)
+        .str.strip()
+    )
+
+    cleaned_df = pd.DataFrame(
+        {
+            "title": df["Product Name"].astype(str).str.strip(),
+            "brand": df["Brand Name"].astype(str).str.strip(),
+            "category": df["Category"].astype(str).str.strip(),
+            "price": df["price"].astype(float),
+            "url": df.get("Product Url", "").astype(str),
+            "description": df["description"].astype(str),
+        }
+    )
+
+    logger.info(
+        "Final cleaned dataset has %d rows and columns %s",
+        len(cleaned_df),
+        list(cleaned_df.columns),
+    )
+
+    return cleaned_df
