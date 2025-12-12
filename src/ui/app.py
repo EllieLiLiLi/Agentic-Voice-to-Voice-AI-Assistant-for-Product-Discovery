@@ -159,16 +159,13 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
             "brand",
             "price",
             "rating",
-            "url",      # 通用 URL 列
-            "source",   # "rag" / "web"
+            "url",
+            "source",
         ]
         cols = [c for c in preferred_cols if c in df.columns] + [
             c for c in df.columns if c not in preferred_cols
         ]
         df = df[cols]
-
-        # 如果你真想严格 Top-5，可以加一行：
-        # df = df.head(5)
 
         st.dataframe(df, use_container_width=True)
 
