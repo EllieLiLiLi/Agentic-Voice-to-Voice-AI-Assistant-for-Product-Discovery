@@ -152,6 +152,42 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
 
         return None
 
+    raw_state = agent_result.get("raw_state", {}) or {}
+
+    base_citations: List[Dict[str, Any]] = raw_state.get("citations", []) or agent_result.get(
+        "citations", []
+    )
+
+    # Fallback: build citations from the returned products when the LLM omitted them
+    fallback_citations: List[Dict[str, Any]] = []
+    if not base_citations and products:
+        seen_keys = set()
+        for prod in products:
+            url = prod.get("url")
+            product_id = prod.get("product_id") or prod.get("sku") or prod.get("id")
+            key = url or product_id or prod.get("title")
+            if not key or key in seen_keys:
+                continue
+            seen_keys.add(key)
+            fallback_citations.append(
+                {
+                    "type": prod.get("source") or "web",
+                    "id": product_id,
+                    "url": url,
+                    "title": prod.get("title") or "(untitled product)",
+                    "price": prod.get("price"),
+                    "rating": prod.get("rating"),
+                }
+            )
+
+    citations = base_citations or fallback_citations
+
+    citation_index = {}
+    for idx, cit in enumerate(citations, start=1):
+        for key in [cit.get("url"), cit.get("id"), cit.get("title")]:
+            if key and key not in citation_index:
+                citation_index[key] = idx
+
     # ===== 0) Agent Step Log =====
     st.markdown("#### Agent Step Log")
     if not steps:
@@ -184,7 +220,19 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
                             unsafe_allow_html=True,
                         )
 
-                    st.markdown(f"**{product.get('title', 'Untitled product')}**")
+                    citation_id = (
+                        citation_index.get(product.get("url"))
+                        or citation_index.get(product.get("product_id"))
+                        or citation_index.get(product.get("sku"))
+                        or citation_index.get(product.get("id"))
+                        or citation_index.get(product.get("title"))
+                    )
+
+                    title = product.get("title", "Untitled product")
+                    if citation_id:
+                        title = f"{title} [{citation_id}]"
+
+                    st.markdown(f"**{title}**")
                     price = product.get("price")
                     rating = product.get("rating")
                     details = []
@@ -222,30 +270,31 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
         st.dataframe(df, use_container_width=True)
 
  
-    raw_state = agent_result.get("raw_state", {}) or {}
-
-    citations: List[Dict[str, Any]] = raw_state.get("citations", []) or agent_result.get(
-        "citations", []
-    )
-
     st.markdown("#### Citations")
     if not citations:
         st.write("No citations.")
-        # st.write("raw citations debug:", raw_state.get("citations"))
     else:
-        for c in citations:
+        for i, c in enumerate(citations, start=1):
             title = c.get("title") or "(no title)"
-
             url = c.get("url")
 
             if not url:
                 cid = c.get("id")
                 url = cid if isinstance(cid, str) and cid.startswith("http") else None
 
+            suffix_parts = []
+            if c.get("type"):
+                suffix_parts.append(c["type"])
+            if c.get("price") is not None:
+                suffix_parts.append(f"${c['price']}")
+            if c.get("rating") is not None:
+                suffix_parts.append(f"⭐ {c['rating']}")
+            suffix = f" — {' • '.join(map(str, suffix_parts))}" if suffix_parts else ""
+
             if url:
-                st.markdown(f"- [{title}]({url})")
+                st.markdown(f"{i}. [{title}]({url}){suffix}")
             else:
-                st.markdown(f"- {title}")
+                st.markdown(f"{i}. {title}{suffix}")
 
 
 
