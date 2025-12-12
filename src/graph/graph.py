@@ -63,12 +63,13 @@ def should_continue_after_router(state: ConversationState) -> str:
     return "continue"
 
 
-def build_graph() -> StateGraph:
+def build_graph():
     """Construct and return the compiled LangGraph execution graph.
     
     Graph structure:
-        START → Router → [conditional] → Planner → Retriever → Answerer → END
-                              ↓
+        START -> Router -> [conditional] -> Planner -> Retriever -> Answerer -> END
+                              |
+                              v
                              END (if out_of_scope)
     
     Returns:
