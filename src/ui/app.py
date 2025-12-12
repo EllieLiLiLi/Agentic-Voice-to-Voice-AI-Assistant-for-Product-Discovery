@@ -27,7 +27,7 @@ def run_agent(query: str) -> Dict[str, Any]:
     Router → Planner → Retriever → Answerer
     """
 
-    # 初始 state：等价于你之前传给 graph 的内容
+
     state: Dict[str, Any] = {
         "user_query": query,
         "intent": {},
@@ -57,7 +57,7 @@ def run_agent(query: str) -> Dict[str, Any]:
             state = answerer_node(state)
 
     except Exception as e:
-        # 后端任意一步报错，都在 UI 这边兜底
+  
         st.error(f"Agent error: {e}")
         return {
             "answer": f"[Agent error] {e}",
@@ -66,7 +66,6 @@ def run_agent(query: str) -> Dict[str, Any]:
             "raw_state": {"error": repr(e)},
         }
 
-    # ===== 正常情况下，从最终 state 里抽取数据喂给 UI =====
 
     final_answer: Dict[str, Any] = state.get("final_answer", {}) or {}
     spoken = final_answer.get("spoken_summary")
@@ -146,7 +145,7 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
             st.markdown("---")
 
         # ===== 1) Product Comparison =====
-    st.markdown("#### Top-5 Product Comparison")
+    st.markdown("#### Top Product Comparison")
     if not products:
         st.write("No products returned.")
     else:
@@ -170,7 +169,7 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
 
         st.dataframe(df, use_container_width=True)
 
-    # ===== 2) Citations：标题 + URL =====
+ 
     raw_state = agent_result.get("raw_state", {}) or {}
 
     citations: List[Dict[str, Any]] = raw_state.get("citations", []) or agent_result.get(
