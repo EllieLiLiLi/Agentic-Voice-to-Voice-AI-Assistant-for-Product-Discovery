@@ -74,19 +74,23 @@ def prepare_documents(
 
 # ---------- Embedding + Chroma index ----------
 
-
-def embed_documents(
-    documents: List[str],
-    model: str = "text-embedding-3-small",
-) -> List[List[float]]:
-    """Call OpenAI embeddings API."""
+client = OpenAI()
+def embed_documents(documents, model: str = "text-embedding-3-small"):
     if not documents:
         return []
 
-    client = _get_openai_client()
-    response = client.embeddings.create(model=model, input=documents)
-    vectors = [item.embedding for item in response.data]
-    logger.info("Generated %d embeddings", len(vectors))
+    texts = [str(d) for d in documents]   # 再保险转一次字符串
+    vectors = []
+
+    BATCH_SIZE = 256
+    for i in range(0, len(texts), BATCH_SIZE):
+        batch = texts[i:i + BATCH_SIZE]
+        resp = client.embeddings.create(
+            model=model,
+            input=batch,   # ✅ 一定是 List[str]
+        )
+        vectors.extend([item.embedding for item in resp.data])
+
     return vectors
 
 
