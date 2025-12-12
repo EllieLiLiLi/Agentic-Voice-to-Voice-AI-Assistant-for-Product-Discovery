@@ -81,7 +81,7 @@ def main() -> None:
             shutil.rmtree(args.index_dir)
 
     raw_df = load_raw_data(args.raw_path)
-    cleaned_df = clean_dataframe(raw_df, allowed_keywords=args.allowed_keywords, price_cap_quantile=args.price_cap_quantile)
+    cleaned_df = clean_dataframe(raw_df)
     logger.info("Cleaned dataframe shape: %s", cleaned_df.shape)
 
     save_clean_data(cleaned_df, args.clean_output)
