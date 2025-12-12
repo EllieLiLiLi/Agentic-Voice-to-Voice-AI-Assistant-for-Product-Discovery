@@ -132,6 +132,26 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
     steps: List[Dict[str, Any]] = agent_result.get("steps", [])
     products: List[Dict[str, Any]] = agent_result.get("products", [])
 
+    def _extract_image_url(prod: Dict[str, Any]) -> str | None:
+        """Best-effort lookup for a product image/thumbnail URL."""
+
+        if not prod:
+            return None
+
+        for key in (
+            "image",
+            "image_url",
+            "imageUrl",
+            "thumbnail",
+            "thumbnail_url",
+            "thumbnailUrl",
+        ):
+            url = prod.get(key)
+            if isinstance(url, str) and url.startswith("http"):
+                return url
+
+        return None
+
     # ===== 0) Agent Step Log =====
     st.markdown("#### Agent Step Log")
     if not steps:
@@ -149,6 +169,38 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
     if not products:
         st.write("No products returned.")
     else:
+        st.markdown("##### Product photos")
+        with st.container(border=True):
+            top_cards = products[:3]
+            cols = st.columns(len(top_cards)) if top_cards else []
+            for col, product in zip(cols, top_cards):
+                with col:
+                    img_url = _extract_image_url(product)
+                    if img_url:
+                        st.image(img_url, use_column_width=True)
+                    else:
+                        st.markdown(
+                            "<div style='height:180px; display:flex; align-items:center; justify-content:center; background:#f0f4f2; border-radius:12px; color:#6b7a70;'>No image</div>",
+                            unsafe_allow_html=True,
+                        )
+
+                    st.markdown(f"**{product.get('title', 'Untitled product')}**")
+                    price = product.get("price")
+                    rating = product.get("rating")
+                    details = []
+                    if price is not None:
+                        details.append(f"${price}")
+                    if rating is not None:
+                        details.append(f"⭐ {rating}")
+                    brand = product.get("brand")
+                    if brand:
+                        details.append(str(brand))
+                    if details:
+                        st.caption(" • ".join(map(str, details)))
+                    url = product.get("url")
+                    if url:
+                        st.markdown(f"[View product]({url})")
+
         df = pd.DataFrame(products)
 
         df = df.drop(columns=["score"], errors="ignore")
