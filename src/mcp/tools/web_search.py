@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -20,6 +21,11 @@ import requests
 logger = logging.getLogger(__name__)
 
 DEFAULT_TOP_K = 5
+ALLOWED_DOMAINS = [
+    "amazon.com",
+    "walmart.com",
+    "target.com",
+]
 
 # Backward compatible env name (your earlier version used WEB_SEARCH_API_KEY)
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY") or os.getenv("WEB_SEARCH_API_KEY")
@@ -98,6 +104,11 @@ def _normalize_tavily_results(raw: Dict[str, Any], top_k: int) -> List[Dict[str,
         snippet = (it.get("content") or it.get("snippet") or "").strip()
         score = it.get("score")
 
+        domain = urlparse(url).netloc.lower()
+        if not any(domain.endswith(allowed) for allowed in ALLOWED_DOMAINS):
+            logger.debug("Skipping non-retail domain: %s", domain)
+            continue
+
         # First try to extract price from tavily snippet/title
         price = _extract_price(title) or _extract_price(snippet)
 
@@ -159,6 +170,7 @@ def web_search(query: str, top_k: int = DEFAULT_TOP_K) -> Dict[str, Any]:
         raw = client.search(
             query=query,
             max_results=top_k,
+            include_domains=ALLOWED_DOMAINS,
             include_answer=False,
             include_raw_content=False,
         )
