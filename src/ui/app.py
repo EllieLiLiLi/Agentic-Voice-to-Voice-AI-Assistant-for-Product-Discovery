@@ -133,6 +133,10 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
     steps: List[Dict[str, Any]] = agent_result.get("steps", [])
     products: List[Dict[str, Any]] = agent_result.get("products", [])
 
+    # 🌟 调试：看一下 UI 真正拿到的 product 长什么样
+    if products:
+        st.write("DEBUG products[0]:", products[0])
+
     # ===== 0) Agent Step Log =====
     st.markdown("#### Agent Step Log")
     if not steps:
