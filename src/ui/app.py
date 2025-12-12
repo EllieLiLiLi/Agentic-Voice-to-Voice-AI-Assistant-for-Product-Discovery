@@ -156,7 +156,8 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
     else:
         df = pd.DataFrame(products)
 
-        # 现在 rag 和 web 都有 url，就不再展示 product_id
+        df = df.drop(columns=["score"], errors="ignore")
+
         preferred_cols = [
             "sku",
             "title",
