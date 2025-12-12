@@ -318,7 +318,13 @@ def router_node(state: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Updated state with intent, constraints, and safety_flags
     """
-    user_query = state["user_query"]
+    user_query = (
+        state.get("user_query")
+        or state.get("query")
+        or state.get("input")
+        or ""
+    )
+    state["user_query"] = user_query
     
     # Add to node logs
     if state.get("node_logs") is None:
@@ -395,7 +401,7 @@ def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     intent = state.get("intent", {})
     constraints = state.get("constraints", {})
-    user_query = state["user_query"]
+    user_query = state.get("user_query", "")
     
     state["node_logs"].append(f"[Planner] Creating search plan for intent: {intent.get('type')}")
     
@@ -469,7 +475,7 @@ def retriever_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     plan = state.get("plan", [])
     search_params = state.get("search_params", {})
-    user_query = state["user_query"]
+    user_query = state.get("user_query", "")
     
     state["node_logs"].append(f"[Retriever] Executing plan: {plan}")
     
@@ -545,7 +551,7 @@ def answerer_node(state: Dict[str, Any]) -> Dict[str, Any]:
     results = state.get("reconciled_results", [])
     intent = state.get("intent", {})
     constraints = state.get("constraints", {})
-    user_query = state["user_query"]
+    user_query = state.get("user_query", "")
     
     state["node_logs"].append(f"[Answerer] Synthesizing answer from {len(results)} results")
     
