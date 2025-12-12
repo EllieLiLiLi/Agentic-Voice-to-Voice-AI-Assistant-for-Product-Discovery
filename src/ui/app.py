@@ -167,22 +167,53 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
         st.dataframe(df, use_container_width=True)
 
     # Citations
+    # st.markdown("#### Citations")
+    # if not products:
+    #     st.write("No citations.")
+    # else:
+    #     for p in products:
+    #         doc_id = p.get("doc_id")
+    #         url = p.get("source_url")
+    #         title = p.get("title") or p.get("sku")
+    #         if not (doc_id or url):
+    #             continue
+    #         line_parts = []
+    #         if doc_id:
+    #             line_parts.append(f"**doc_id:** `{doc_id}`")
+    #         if url:
+    #             line_parts.append(f"[{title}]({url})")
+    #         st.markdown("- " + " — ".join(line_parts))
+    # raw_state = agent_result.get("raw_state", {}) or {}
+    # citations: List[Dict[str, Any]] = raw_state.get("citations", []) or agent_result.get(
+    #     "citations", []
+    # )
+
     st.markdown("#### Citations")
-    if not products:
+    if not citations:
         st.write("No citations.")
+        # st.write("raw citations debug:", raw_state.get("citations"))
     else:
-        for p in products:
-            doc_id = p.get("doc_id")
-            url = p.get("source_url")
-            title = p.get("title") or p.get("sku")
-            if not (doc_id or url):
-                continue
-            line_parts = []
-            if doc_id:
-                line_parts.append(f"**doc_id:** `{doc_id}`")
+        for c in citations:
+            ctype = (c.get("type") or "").lower()   # "rag" / "web"
+            cid = c.get("id")                       # 对 web 来说就是 URL
+            title = c.get("title") or "(no title)"
+
+            # 🌟 对于 web：id 本身就是 URL
+            url = None
+            if ctype == "web":
+                url = cid
+            # 如果你以后在 Citation 里加了 url 字段，可以优先用 c.get("url")
+            # url = c.get("url") or (cid if ctype == "web" else None)
+
             if url:
-                line_parts.append(f"[{title}]({url})")
-            st.markdown("- " + " — ".join(line_parts))
+                # 标题 + URL（可点击）
+                st.markdown(f"- [{title}]({url})")
+            else:
+                # 没有 URL（例如 RAG 只有 product_id），就只展示标题和 id
+                if cid:
+                    st.markdown(f"- {title} (`{cid}`)")
+                else:
+                    st.markdown(f"- {title}")
 
 
 # =========================
