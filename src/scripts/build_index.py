@@ -67,15 +67,15 @@ def main() -> None:
     if args.rebuild:
         _maybe_reset_outputs(cleaned_path, index_dir)
 
-    # 1) 读原始 CSV
+
     raw_df = load_raw_data(args.raw_path)
 
-    # 2) 清洗 + 只保留四列
+ 
     cleaned_df = clean_dataframe(raw_df, price_cap_quantile=args.price_cap_quantile)
     logger.info("Cleaned dataframe shape: %s", cleaned_df.shape)
     save_cleaned_data(cleaned_df, str(cleaned_path))
 
-    # 3) 构建向量索引（Chroma）
+ 
     index_dir.mkdir(parents=True, exist_ok=True)
     build_vector_index(cleaned_df, index_dir=str(index_dir))
 
