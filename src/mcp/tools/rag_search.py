@@ -11,30 +11,68 @@ from src.data.embedding import get_openai_client
 logger = logging.getLogger(__name__)
 
 
+from typing import Any, Dict, List
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 def _flatten_results(results: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Normalize Chroma's nested query output into a flat list of records."""
+    """
+    Normalize Chroma query results into a list of product dicts.
 
-    metadatas = results.get("metadatas", [[]]) or [[]]
-    documents = results.get("documents", [[]]) or [[]]
-    distances = results.get("distances", [[]]) or [[]]
+    Expected input format from chroma_collection.query():
+        {
+            "ids": [[...]],
+            "documents": [[...]],
+            "metadatas": [[{"product_id": ..., "title": ..., "price": ..., "url": ...}, ...]],
+            "distances": [[...]],
+        }
+    """
+    flat: List[Dict[str, Any]] = []
 
-    flat_metadatas = metadatas[0] if metadatas else []
-    flat_documents = documents[0] if documents else []
-    flat_distances = distances[0] if distances else []
+    ids_batches = results.get("ids") or []
+    docs_batches = results.get("documents") or []
+    metas_batches = results.get("metadatas") or []
+    dists_batches = results.get("distances") or []
 
-    normalized: List[Dict[str, Any]] = []
-    for metadata, document, distance in zip(flat_metadatas, flat_documents, flat_distances):
-        normalized.append(
-            {
-                "title": metadata.get("title") if metadata else None,
-                "brand": metadata.get("brand") if metadata else None,
-                "category": metadata.get("category") if metadata else None,
-                "document": document,
-                "score": distance,
-            }
-        )
+    if not ids_batches:
+        return flat
 
-    return normalized
+    for batch_idx in range(len(ids_batches)):
+        ids = ids_batches[batch_idx] or []
+        docs = docs_batches[batch_idx] or []
+        metas = metas_batches[batch_idx] or []
+        dists = dists_batches[batch_idx] or []
+
+        for i in range(len(ids)):
+            meta = metas[i] if i < len(metas) else {}
+            distance = dists[i] if i < len(dists) else None
+
+            product_id = meta.get("product_id") or ids[i]
+            title = meta.get("title") or (docs[i] if i < len(docs) else None)
+            price = meta.get("price")
+            url = meta.get("url")
+
+            # 距离越小越相似，这里简单转成一个 0~1 的 score，防止除以 0
+            score = None
+            if distance is not None:
+                score = max(0.0, 1.0 - float(distance))
+
+            flat.append(
+                {
+                    "id": product_id,
+                    "title": title,
+                    "price": price,
+                    "url": url,
+                    "score": score,
+                    "source": "rag",
+                }
+            )
+
+    logger.info("Normalized %d RAG results", len(flat))
+    return flat
+
 
 
 def rag_search(query: str, top_k: int = 5) -> Dict[str, Any]:
