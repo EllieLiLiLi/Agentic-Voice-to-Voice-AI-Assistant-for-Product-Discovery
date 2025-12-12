@@ -119,3 +119,11 @@ Expected: prints normalized Tavily search results for the sample query.
 
 - Real API keys must be supplied via environment variables or a local `.env` file. Do **not** hardcode secrets.
 - TODO comments across the codebase indicate where to plug in concrete implementations for dataset handling, vector search, LangGraph logic, ASR/TTS providers, and MCP plumbing.
+
+## ⚡️ Performance tips
+
+- **Use lighter models when speed matters:** set `LLM_MODEL` to a faster option (e.g., `gpt-4o-mini`) and `LLM_PROVIDER` to a low-latency endpoint via environment variables to avoid code changes. Configuration is loaded dynamically at startup, so you can swap providers without redeploying. 【F:src/config.py†L17-L58】
+- **Keep audio lightweight:** lower `AUDIO_SAMPLE_RATE` (defaults to `16_000`) and prefer a small ASR model (e.g., `whisper-small`) to reduce transcription latency during interactive sessions. 【F:src/config.py†L27-L46】
+- **Prebuild the vector index once:** run `python -m src.scripts.build_index --rebuild` ahead of demos so retrieval is instant at runtime. Avoid rebuilding on every launch; the command writes cleaned data and a persistent Chroma index under `data/processed/`. 【F:src/scripts/build_index.py†L1-L65】
+- **Batch embeddings when (re)indexing:** the embedding pipeline already slices work into batches to stay under provider limits; keep batch sizes modest and run indexing offline so user-facing requests don’t wait for embedding. 【F:src/data/embedding.py†L66-L118】
+- **Disable optional tracing in production:** set `LANGSMITH_TRACING=false` (or omit it) to skip tracing overhead unless you are actively debugging. 【F:src/config.py†L45-L58】

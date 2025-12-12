@@ -16,12 +16,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+DEFAULT_FAST_MODEL = "gpt-4o-mini"
+
+
 @dataclass
 class LLMConfig:
     """Configuration for LLM provider selection and models."""
 
     provider: str = "openai"
-    model: str = "gpt-4o-mini"
+    model: str = DEFAULT_FAST_MODEL
     api_key: Optional[str] = None
     base_url: Optional[str] = None
 
@@ -64,7 +67,7 @@ def get_config() -> AppConfig:
 
     llm_config = LLMConfig(
         provider=os.getenv("LLM_PROVIDER", "openai"),
-        model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
+        model=os.getenv("LLM_MODEL", DEFAULT_FAST_MODEL),
         api_key=os.getenv("LLM_API_KEY"),
         base_url=os.getenv("LLM_BASE_URL"),
     )

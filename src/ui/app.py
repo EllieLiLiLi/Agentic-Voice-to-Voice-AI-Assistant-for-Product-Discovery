@@ -132,6 +132,109 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
     steps: List[Dict[str, Any]] = agent_result.get("steps", [])
     products: List[Dict[str, Any]] = agent_result.get("products", [])
 
+    def _extract_image_url(prod: Dict[str, Any]) -> str | None:
+        """Best-effort lookup for a product image/thumbnail URL."""
+
+        if not prod:
+            return None
+
+        def _coerce_url(val: Any) -> str | None:
+            if isinstance(val, str):
+                if val.startswith("http"):
+                    return val
+                if val.startswith("//"):
+                    return "https:" + val
+            return None
+
+        # Common single-value fields
+        for key in (
+            "image",
+            "image_url",
+            "imageUrl",
+            "image_link",
+            "imageLink",
+            "thumbnail",
+            "thumbnail_url",
+            "thumbnailUrl",
+            "main_image",
+            "mainImage",
+        ):
+            url = _coerce_url(prod.get(key))
+            if url:
+                return url
+
+        # Handle dict wrappers like {"url": ...} or {"src": ...}
+        for key in ("image", "thumbnail", "primaryImage"):
+            val = prod.get(key)
+            if isinstance(val, dict):
+                url = _coerce_url(val.get("url") or val.get("src"))
+                if url:
+                    return url
+
+        # Handle lists of images
+        for key in ("images", "image_urls", "imageUrls", "thumbnails"):
+            val = prod.get(key)
+            if isinstance(val, list):
+                for candidate in val:
+                    if isinstance(candidate, dict):
+                        url = _coerce_url(candidate.get("url") or candidate.get("src"))
+                    else:
+                        url = _coerce_url(candidate)
+                    if url:
+                        return url
+
+        # Search any field with "image" in the key as a last resort
+        for key, val in prod.items():
+            if "image" in key.lower() or "thumb" in key.lower():
+                url = _coerce_url(val)
+                if not url and isinstance(val, dict):
+                    url = _coerce_url(val.get("url") or val.get("src"))
+                if not url and isinstance(val, list):
+                    for candidate in val:
+                        url = _coerce_url(candidate.get("url") if isinstance(candidate, dict) else candidate)
+                        if url:
+                            break
+                if url:
+                    return url
+
+        return None
+
+    raw_state = agent_result.get("raw_state", {}) or {}
+
+    base_citations: List[Dict[str, Any]] = raw_state.get("citations", []) or agent_result.get(
+        "citations", []
+    )
+
+    # Fallback: build citations from the returned products when the LLM omitted them
+    fallback_citations: List[Dict[str, Any]] = []
+    if not base_citations and products:
+        seen_keys = set()
+        for prod in products:
+            url = prod.get("url")
+            product_id = prod.get("product_id") or prod.get("sku") or prod.get("id")
+            key = url or product_id or prod.get("title")
+            if not key or key in seen_keys:
+                continue
+            seen_keys.add(key)
+            fallback_citations.append(
+                {
+                    "type": prod.get("source") or "web",
+                    "id": product_id,
+                    "url": url,
+                    "title": prod.get("title") or "(untitled product)",
+                    "price": prod.get("price"),
+                    "rating": prod.get("rating"),
+                }
+            )
+
+    citations = base_citations or fallback_citations
+
+    citation_index = {}
+    for idx, cit in enumerate(citations, start=1):
+        for key in [cit.get("url"), cit.get("id"), cit.get("title")]:
+            if key and key not in citation_index:
+                citation_index[key] = idx
+
     # ===== 0) Agent Step Log =====
     st.markdown("#### Agent Step Log")
     if not steps:
@@ -149,6 +252,50 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
     if not products:
         st.write("No products returned.")
     else:
+        st.markdown("##### Product photos")
+        with st.container(border=True):
+            top_cards = products[:3]
+            cols = st.columns(len(top_cards)) if top_cards else []
+            for col, product in zip(cols, top_cards):
+                with col:
+                    img_url = _extract_image_url(product)
+                    if img_url:
+                        st.image(img_url, use_column_width=True)
+                    else:
+                        st.markdown(
+                            "<div style='height:180px; display:flex; align-items:center; justify-content:center; background:#f0f4f2; border-radius:12px; color:#6b7a70;'>No image</div>",
+                            unsafe_allow_html=True,
+                        )
+
+                    citation_id = (
+                        citation_index.get(product.get("url"))
+                        or citation_index.get(product.get("product_id"))
+                        or citation_index.get(product.get("sku"))
+                        or citation_index.get(product.get("id"))
+                        or citation_index.get(product.get("title"))
+                    )
+
+                    title = product.get("title", "Untitled product")
+                    if citation_id:
+                        title = f"{title} [{citation_id}]"
+
+                    st.markdown(f"**{title}**")
+                    price = product.get("price")
+                    rating = product.get("rating")
+                    details = []
+                    if price is not None:
+                        details.append(f"${price}")
+                    if rating is not None:
+                        details.append(f"⭐ {rating}")
+                    brand = product.get("brand")
+                    if brand:
+                        details.append(str(brand))
+                    if details:
+                        st.caption(" • ".join(map(str, details)))
+                    url = product.get("url")
+                    if url:
+                        st.markdown(f"[View product]({url})")
+
         df = pd.DataFrame(products)
 
         df = df.drop(columns=["score"], errors="ignore")
@@ -170,30 +317,31 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
         st.dataframe(df, use_container_width=True)
 
  
-    raw_state = agent_result.get("raw_state", {}) or {}
-
-    citations: List[Dict[str, Any]] = raw_state.get("citations", []) or agent_result.get(
-        "citations", []
-    )
-
     st.markdown("#### Citations")
     if not citations:
         st.write("No citations.")
-        # st.write("raw citations debug:", raw_state.get("citations"))
     else:
-        for c in citations:
+        for i, c in enumerate(citations, start=1):
             title = c.get("title") or "(no title)"
-
             url = c.get("url")
 
             if not url:
                 cid = c.get("id")
                 url = cid if isinstance(cid, str) and cid.startswith("http") else None
 
+            suffix_parts = []
+            if c.get("type"):
+                suffix_parts.append(c["type"])
+            if c.get("price") is not None:
+                suffix_parts.append(f"${c['price']}")
+            if c.get("rating") is not None:
+                suffix_parts.append(f"⭐ {c['rating']}")
+            suffix = f" — {' • '.join(map(str, suffix_parts))}" if suffix_parts else ""
+
             if url:
-                st.markdown(f"- [{title}]({url})")
+                st.markdown(f"{i}. [{title}]({url}){suffix}")
             else:
-                st.markdown(f"- {title}")
+                st.markdown(f"{i}. {title}{suffix}")
 
 
 
