@@ -9,90 +9,94 @@ import streamlit as st
 
 from src.asr_tts.asr import transcribe_audio
 from src.asr_tts.tts import synthesize_speech
-
+from src.graph.graph import agent as product_agent
+from src.graph.nodes import (
+    router_node,
+    planner_node,
+    retriever_node,
+    answerer_node,
+)
 
 # =========================
-# 1. Mock Agent output (replace with real LangGraph call later)
 # =========================
-MOCK_AGENT_RESULT: Dict[str, Any] = {
-    "answer": (
-        "Here are some eco-friendly stainless-steel cleaners under $15 that "
-        "match your request. I prioritized high rating and plant-based ingredients."
-    ),
-    "steps": [
-        {
-            "node": "router",
-            "summary": (
-                "Detected intent as product recommendation for stainless-steel "
-                "cleaner with eco-friendly and price < $15 constraints."
-            ),
-        },
-        {
-            "node": "planner",
-            "summary": (
-                "Planned to call rag.search over the Amazon 2020 cleaning slice, "
-                "filtering by category='cleaning', max_price=15, and eco-friendly features."
-            ),
-        },
-        {
-            "node": "retriever",
-            "summary": (
-                "Retrieved top 5 items from local vector index and re-ranked them by "
-                "rating and price; cross-checked a couple of items with web.search."
-            ),
-        },
-        {
-            "node": "critic",
-            "summary": (
-                "Ensured that recommended items are actually stainless-steel cleaners, "
-                "not general-purpose or abrasive products, and that they are in stock."
-            ),
-        },
-        {
-            "node": "final_answer",
-            "summary": (
-                "Summarized pros/cons for each cleaner and recommended two best options "
-                "with short justifications and price/rating info."
-            ),
-        },
-    ],
-    "products": [
-        {
-            "sku": "B00ABC123",
-            "title": "Eco-Friendly Stainless Steel Cleaner Spray, 500ml",
-            "brand": "GreenShine",
-            "price": 12.99,
-            "rating": 4.7,
-            "doc_id": "local-123",
-            "source_url": "https://example.com/product/eco-steel-1",
-        },
-        {
-            "sku": "B00XYZ456",
-            "title": "Plant-Based Stainless Steel Wipes, 50 count",
-            "brand": "CleanLeaf",
-            "price": 9.49,
-            "rating": 4.4,
-            "doc_id": "local-456",
-            "source_url": "https://example.com/product/eco-steel-2",
-        },
-        {
-            "sku": "B00QWE789",
-            "title": "Fragrance-Free Steel Cleaner with Refill Pack",
-            "brand": "PureShine",
-            "price": 13.50,
-            "rating": 4.5,
-            "doc_id": "local-789",
-            "source_url": "https://example.com/product/eco-steel-3",
-        },
-    ],
-}
-
-
+# 1'. 真正的 Agent runner（LangGraph backend）
+# =========================
 def run_agent(query: str) -> Dict[str, Any]:
-    """Placeholder for your real LangGraph / RAG pipeline."""
-    result = dict(MOCK_AGENT_RESULT)
-    result["question"] = query
-    return result
+    """Run the toy product assistant by calling the 4 LangGraph nodes in order.
+
+    只在 UI 里把 nodes 串起来：Router → Planner → Retriever → Answerer。
+    """
+
+    # 初始 state：等价于你之前传给 graph 的内容
+    state: Dict[str, Any] = {
+        "user_query": query,
+        "intent": {},
+        "constraints": {},
+        "plan": [],
+        "search_strategy": None,
+        "search_params": {},
+        "rag_results": [],
+        "web_results": [],
+        "reconciled_results": [],
+        "final_answer": {},
+        "citations": [],
+        "node_logs": [],
+    }
+
+    try:
+        # 1) Router
+        state = router_node(state)
+
+        # 如果 router 判定 out_of_scope，直接跳过后面的搜索节点
+        if state.get("intent", {}).get("type") != "out_of_scope":
+            # 2) Planner
+            state = planner_node(state)
+            # 3) Retriever
+            state = retriever_node(state)
+            # 4) Answerer
+            state = answerer_node(state)
+
+    except Exception as e:
+        # 后端任意一步报错，都在 UI 这边兜底
+        st.error(f"Agent error: {e}")
+        return {
+            "answer": f"[Agent error] {e}",
+            "products": [],
+            "steps": [],
+            "raw_state": {"error": repr(e)},
+        }
+
+    # ===== 正常情况下，从最终 state 里抽取数据喂给 UI =====
+
+    final_answer: Dict[str, Any] = state.get("final_answer", {}) or {}
+    spoken = final_answer.get("spoken_summary")
+    detailed = final_answer.get("detailed_analysis")
+    answer_text = (
+        spoken
+        or detailed
+        or "I generated a result, but could not read the final answer."
+    )
+
+    products = (
+        state.get("reconciled_results")
+        or state.get("rag_results")
+        or state.get("web_results")
+        or []
+    )
+
+    logs = state.get("node_logs") or []
+    steps = [
+        {"node": f"step_{i+1}", "summary": log}
+        for i, log in enumerate(logs)
+    ]
+
+    return {
+        "answer": answer_text,
+        "products": products,
+        "steps": steps,
+        "raw_state": state,
+    }
+
 
 
 # =========================
@@ -129,20 +133,20 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
     steps: List[Dict[str, Any]] = agent_result.get("steps", [])
     products: List[Dict[str, Any]] = agent_result.get("products", [])
 
-    # # Step log
-    # st.markdown("#### Agent Step Log")
-    # if not steps:
-    #     st.write("No step log provided.")
-    # else:
-    #     for i, step in enumerate(steps, start=1):
-    #         node_name = step.get("node", f"step_{i}")
-    #         summary = step.get("summary", "")
-    #         st.markdown(f"**{i}. {node_name}**")
-    #         st.write(summary)
-    #         st.markdown("---")
+    # ===== 0) Agent Step Log =====
+    st.markdown("#### Agent Step Log")
+    if not steps:
+        st.write("No step log provided.")
+    else:
+        for i, step in enumerate(steps, start=1):
+            node_name = step.get("node", f"step_{i}")
+            summary = step.get("summary", "")
+            st.markdown(f"**{i}. {node_name}**")
+            st.write(summary)
+            st.markdown("---")
 
-    # Product comparison table
-    st.markdown("#### Top-3 Product Comparison")
+    # ===== 1) Product Comparison =====
+    st.markdown("#### Top-5 Product Comparison")
     if not products:
         st.write("No products returned.")
     else:
@@ -153,8 +157,9 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
             "brand",
             "price",
             "rating",
-            "doc_id",
-            "source_url",
+            "product_id",   # RAG 里的 ID
+            "url",          # WEB 里的 URL（如果有）
+            "source",       # "rag" / "web"
         ]
         cols = [c for c in preferred_cols if c in df.columns] + [
             c for c in df.columns if c not in preferred_cols
@@ -162,23 +167,40 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
         df = df[cols]
         st.dataframe(df, use_container_width=True)
 
-    # Citations
+    # ===== 2) Citations：标题 + URL =====
+    raw_state = agent_result.get("raw_state", {}) or {}
+    citations: List[Dict[str, Any]] = raw_state.get("citations", []) or agent_result.get(
+        "citations", []
+    )
+
     st.markdown("#### Citations")
-    if not products:
+    if not citations:
         st.write("No citations.")
+        # 调试用（需要的话可以临时打开）：
+        # st.write("raw citations debug:", raw_state.get("citations"))
     else:
-        for p in products:
-            doc_id = p.get("doc_id")
-            url = p.get("source_url")
-            title = p.get("title") or p.get("sku")
-            if not (doc_id or url):
-                continue
-            line_parts = []
-            if doc_id:
-                line_parts.append(f"**doc_id:** `{doc_id}`")
+        for c in citations:
+            ctype = (c.get("type") or "").lower()   # "rag" / "web"
+            cid = c.get("id")                       # 对 web 来说就是 URL
+            title = c.get("title") or "(no title)"
+
+            # 对于 web：id 本身就是 URL
+            url = None
+            if ctype == "web":
+                url = cid
+            # 如果以后你在 Citation 里加了 url 字段，可以写成：
+            # url = c.get("url") or (cid if ctype == "web" else None)
+
             if url:
-                line_parts.append(f"[{title}]({url})")
-            st.markdown("- " + " — ".join(line_parts))
+                # 标题 + 可点击 URL
+                st.markdown(f"- [{title}]({url})")
+            else:
+                # 没有 URL（比如 RAG 只有 product_id），就显示标题 + id
+                if cid:
+                    st.markdown(f"- {title} (`{cid}`)")
+                else:
+                    st.markdown(f"- {title}")
+
 
 
 # =========================
@@ -335,14 +357,16 @@ def app() -> None:
         ">
           Agentic Voice-to-Voice Product Discovery Assistant
         </h2>
+        <p style="
+            font-size: 0.95rem;
+            margin-bottom: 0.9rem;
+            color: #37474f;
+        ">
+          Ask about products by voice or text. The assistant will search our product catalog
+          and the web, then respond with a concise spoken answer plus detailed product info.
+        </p>
         """,
         unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        """
-Ask me via text or voice. I will provide a voice response along with optional text, product tables, and citations.
-"""
     )
 
     # ----- Session state -----
@@ -400,7 +424,6 @@ Ask me via text or voice. I will provide a voice response along with optional te
                             "audio_path": audio_path,
                         }
                     )
-                    st.success("Voice query sent to chatbot.")
                     st.rerun()
 
         st.markdown("---")
