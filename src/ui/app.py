@@ -138,17 +138,64 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
         if not prod:
             return None
 
+        def _coerce_url(val: Any) -> str | None:
+            if isinstance(val, str):
+                if val.startswith("http"):
+                    return val
+                if val.startswith("//"):
+                    return "https:" + val
+            return None
+
+        # Common single-value fields
         for key in (
             "image",
             "image_url",
             "imageUrl",
+            "image_link",
+            "imageLink",
             "thumbnail",
             "thumbnail_url",
             "thumbnailUrl",
+            "main_image",
+            "mainImage",
         ):
-            url = prod.get(key)
-            if isinstance(url, str) and url.startswith("http"):
+            url = _coerce_url(prod.get(key))
+            if url:
                 return url
+
+        # Handle dict wrappers like {"url": ...} or {"src": ...}
+        for key in ("image", "thumbnail", "primaryImage"):
+            val = prod.get(key)
+            if isinstance(val, dict):
+                url = _coerce_url(val.get("url") or val.get("src"))
+                if url:
+                    return url
+
+        # Handle lists of images
+        for key in ("images", "image_urls", "imageUrls", "thumbnails"):
+            val = prod.get(key)
+            if isinstance(val, list):
+                for candidate in val:
+                    if isinstance(candidate, dict):
+                        url = _coerce_url(candidate.get("url") or candidate.get("src"))
+                    else:
+                        url = _coerce_url(candidate)
+                    if url:
+                        return url
+
+        # Search any field with "image" in the key as a last resort
+        for key, val in prod.items():
+            if "image" in key.lower() or "thumb" in key.lower():
+                url = _coerce_url(val)
+                if not url and isinstance(val, dict):
+                    url = _coerce_url(val.get("url") or val.get("src"))
+                if not url and isinstance(val, list):
+                    for candidate in val:
+                        url = _coerce_url(candidate.get("url") if isinstance(candidate, dict) else candidate)
+                        if url:
+                            break
+                if url:
+                    return url
 
         return None
 
