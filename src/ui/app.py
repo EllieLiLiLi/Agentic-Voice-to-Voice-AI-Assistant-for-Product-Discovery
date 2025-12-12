@@ -458,7 +458,11 @@ def app() -> None:
                 # 2) Dropdown with text + products + citations
                 with st.expander("View full answer and product information"):
                     st.markdown("#### Answer")
-                    st.markdown(msg.get("content", ""))
+                    raw_answer = msg.get("content", "")
+                
+                    safe_answer = raw_answer.replace("$", r"\$")
+                
+                    st.markdown(safe_answer)
                     agent_result = msg.get("agent_result")
                     if agent_result:
                         render_agent_details(agent_result)
