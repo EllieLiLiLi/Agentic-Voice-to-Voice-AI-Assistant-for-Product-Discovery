@@ -49,6 +49,11 @@ def _flatten_results(results: Dict[str, Any]) -> List[Dict[str, Any]]:
             meta = metas[i] if i < len(metas) else {}
             distance = dists[i] if i < len(dists) else None
 
+            # ⭐ 调试：只打印前几条的 metadata key
+            if i == 0:
+                logger.info("[DEBUG] RAG meta keys: %s", list(meta.keys()))
+                logger.info("[DEBUG] RAG raw meta: %s", meta)
+
             product_id = meta.get("product_id") or ids[i]
             title = meta.get("title") or (docs[i] if i < len(docs) else None)
             price = meta.get("price")
