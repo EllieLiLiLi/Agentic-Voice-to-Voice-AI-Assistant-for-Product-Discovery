@@ -63,3 +63,10 @@ Search both and reconcile results
 - Model: Claude Sonnet 4
 - Uses Pydantic structured output
 - Passes filters to retriever for efficient search
+
+## Planner Rubric
+- **Relevance of strategy**: Strategy must match user recency cues (default `rag_only`, recency → `web_only`, price/availability comparisons → `hybrid`).
+- **Tool justification**: For each selected tool, include a brief reasoning statement that ties back to user intent (e.g., price comparison requires live web data).
+- **Parameter quality**: Set `top_k` and filters consistent with user constraints; omit filters that are unspecified.
+- **Safety**: Return an empty plan for out-of-scope queries to avoid unnecessary tool calls.
+- **Clarity**: Response must conform to the JSON structure under "Output Format" with concise, user-grounded reasoning.
