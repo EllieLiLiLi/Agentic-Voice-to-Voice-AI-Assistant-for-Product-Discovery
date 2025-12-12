@@ -23,6 +23,19 @@ logger = logging.getLogger(__name__)
 DEFAULT_TOP_K = 5
 ALLOWED_DOMAINS = ["amazon.com", "walmart.com", "target.com"]
 
+_PRODUCT_PATTERNS = {
+    "amazon.com": [
+        re.compile(r"/dp/[A-Z0-9]{10}", re.IGNORECASE),
+        re.compile(r"/gp/product/[A-Z0-9]{10}", re.IGNORECASE),
+    ],
+    "walmart.com": [
+        re.compile(r"/ip/", re.IGNORECASE),
+    ],
+    "target.com": [
+        re.compile(r"/p/", re.IGNORECASE),
+    ],
+}
+
 # Backward compatible env name (your earlier version used WEB_SEARCH_API_KEY)
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY") or os.getenv("WEB_SEARCH_API_KEY")
 
@@ -57,15 +70,31 @@ def _extract_price(text: str) -> Optional[float]:
     return None
 
 
-def _is_allowed_domain(url: str) -> bool:
-    """Return True if the URL's host matches an approved retail domain."""
+def _matched_allowed_domain(url: str) -> Optional[str]:
+    """Return the allowlisted base domain if the URL is approved."""
     hostname = urlparse(url).hostname or ""
     hostname = hostname.lower()
 
     # Exact domain or subdomain match only (avoid fooamazon.com false positives)
-    return any(
-        hostname == allowed or hostname.endswith(f".{allowed}") for allowed in ALLOWED_DOMAINS
-    )
+    for allowed in ALLOWED_DOMAINS:
+        if hostname == allowed or hostname.endswith(f".{allowed}"):
+            return allowed
+    return None
+
+
+def _is_allowed_domain(url: str) -> bool:
+    return _matched_allowed_domain(url) is not None
+
+
+def _is_product_page(url: str) -> bool:
+    """Return True if URL path looks like a product detail page on an approved domain."""
+    allowed = _matched_allowed_domain(url)
+    if not allowed:
+        return False
+
+    path = urlparse(url).path or ""
+    patterns = _PRODUCT_PATTERNS.get(allowed, [])
+    return any(pat.search(path) for pat in patterns)
 
 
 # -------------------------
@@ -113,6 +142,10 @@ def _normalize_tavily_results(raw: Dict[str, Any], top_k: int) -> List[Dict[str,
 
         if not _is_allowed_domain(url):
             logger.debug("Skipping non-retail domain: %s", url)
+            continue
+
+        if not _is_product_page(url):
+            logger.debug("Skipping non-product page: %s", url)
             continue
 
         # First try to extract price from tavily snippet/title
