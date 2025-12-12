@@ -1,10 +1,10 @@
 """
-Web search MCP tool implementation (Tavily + minimal SerpAPI fallback).
+Web search MCP tool implementation (Tavily + Rainforest Amazon fallback).
 
 Goal:
 - Primary: Use Tavily Web Search and normalize output.
 - If Tavily results have no price (common for listing pages),
-  fallback to SerpAPI Google Shopping to extract a product price.
+  fallback to Rainforest API for Amazon product price + title.
 - Maintain existing JSON shape for MCP clients.
 """
 
@@ -40,11 +40,11 @@ _PRODUCT_PATTERNS = {
     ],
 }
 
-# Backward compatible env name (your earlier version used WEB_SEARCH_API_KEY)
+# Backward compatible env name
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY") or os.getenv("WEB_SEARCH_API_KEY")
 
-# SerpAPI Shopping fallback
-SERPAPI_API_KEY = os.getenv("SERPAPI_API_KEY")
+# ✅ Rainforest API (Amazon authoritative source)
+RAINFOREST_API_KEY = os.getenv("RAINFOREST_API_KEY")
 
 
 # -----------------------
@@ -59,7 +59,6 @@ _PRICE_PATTERNS = [
 
 
 def _extract_price(text: str) -> Optional[float]:
-    """Best-effort extract a price from free text."""
     if not text:
         return None
     for pat in _PRICE_PATTERNS:
@@ -75,11 +74,8 @@ def _extract_price(text: str) -> Optional[float]:
 
 
 def _matched_allowed_domain(url: str) -> Optional[str]:
-    """Return the allowlisted base domain if the URL is approved."""
     hostname = urlparse(url).hostname or ""
     hostname = hostname.lower()
-
-    # Exact domain or subdomain match only (avoid fooamazon.com false positives)
     for allowed in ALLOWED_DOMAINS:
         if hostname == allowed or hostname.endswith(f".{allowed}"):
             return allowed
@@ -91,43 +87,57 @@ def _is_allowed_domain(url: str) -> bool:
 
 
 def _is_product_page(url: str) -> bool:
-    """Return True if URL path looks like a product detail page on an approved domain."""
     allowed = _matched_allowed_domain(url)
     if not allowed:
         return False
-
     path = urlparse(url).path or ""
     patterns = _PRODUCT_PATTERNS.get(allowed, [])
     return any(pat.search(path) for pat in patterns)
 
 
 # -------------------------
-# SerpAPI Fallback for Price
+# Rainforest helpers (NEW)
 # -------------------------
-def _serpapi_get_price(query: str) -> Optional[float]:
-    """Minimal SerpAPI Google Shopping fallback: return first product price."""
-    if not SERPAPI_API_KEY:
+def _extract_asin(url: str) -> Optional[str]:
+    for pat in _PRODUCT_PATTERNS["amazon.com"]:
+        m = pat.search(url)
+        if m:
+            return m.group(0).split("/")[-1]
+    return None
+
+
+def _rainforest_get_amazon_product(asin: str) -> Optional[Dict[str, Any]]:
+    if not RAINFOREST_API_KEY or not asin:
         return None
 
     try:
         params = {
-            "engine": "google_shopping",
-            "q": query,
-            "api_key": SERPAPI_API_KEY,
+            "api_key": RAINFOREST_API_KEY,
+            "type": "product",
+            "amazon_domain": "amazon.com",
+            "asin": asin,
         }
-        resp = requests.get("https://serpapi.com/search", params=params, timeout=8)
+        resp = requests.get(
+            "https://api.rainforestapi.com/request",
+            params=params,
+            timeout=10,
+        )
         data = resp.json()
-        products = data.get("shopping_results", [])
-        if not products:
+        product = data.get("product")
+        if not product:
             return None
 
-        price_str = products[0].get("price")
-        if not price_str:
-            return None
+        price = None
+        price_obj = product.get("price")
+        if isinstance(price_obj, dict):
+            price = price_obj.get("value")
 
-        cleaned = price_str.replace("$", "").replace(",", "").strip()
-        return float(cleaned)
+        return {
+            "title": product.get("title"),
+            "price": price,
+        }
     except Exception:
+        logger.exception("Rainforest API failed for ASIN %s", asin)
         return None
 
 
@@ -146,20 +156,17 @@ def _normalize_tavily_results(raw: Dict[str, Any], top_k: int) -> List[Dict[str,
         score = it.get("score")
 
         if not _is_allowed_domain(url):
-            logger.debug("Skipping non-retail domain: %s", url)
             continue
 
         allowed_candidates.append({"title": title, "url": url, "snippet": snippet, "score": score})
 
         if not _is_product_page(url):
-            logger.debug("Skipping non-product page: %s", url)
             continue
 
         normalized.append(
             _normalize_single_result(title=title, url=url, snippet=snippet, score=score)
         )
 
-    # If no product URLs survived, fall back to any allowed retail domain to avoid empty results
     if not normalized:
         for it in allowed_candidates:
             normalized.append(
@@ -172,20 +179,25 @@ def _normalize_tavily_results(raw: Dict[str, Any], top_k: int) -> List[Dict[str,
 
 
 def _normalize_single_result(*, title: str, url: str, snippet: str, score: Any) -> Dict[str, Any]:
-    # First try to extract price from tavily snippet/title
     price = _extract_price(title) or _extract_price(snippet)
+    final_title = title
 
-    # Fallback: if no price found in Tavily result, try SerpAPI Shopping
-    if price is None:
-        fallback_query = title or snippet
-        price = _serpapi_get_price(fallback_query)
+    domain = _matched_allowed_domain(url)
+
+    # ✅ Amazon authoritative price + title
+    if domain == "amazon.com":
+        asin = _extract_asin(url)
+        rf = _rainforest_get_amazon_product(asin)
+        if rf:
+            final_title = rf.get("title") or final_title
+            price = rf.get("price")
 
     return {
-        "title": title,
+        "title": final_title,
         "url": url,
         "snippet": snippet,
-        "price": price,  # float or None
-        "score": score,  # tavily similarity score if provided
+        "price": price,
+        "score": score,
     }
 
 
@@ -193,40 +205,20 @@ def _normalize_single_result(*, title: str, url: str, snippet: str, score: Any) 
 # Main Web Search Function
 # -------------------------
 def web_search(query: str, top_k: int = DEFAULT_TOP_K) -> Dict[str, Any]:
-    """Call Tavily web search and normalize results.
-
-    Returns:
-        {
-          "query": str,
-          "results": [
-            {"title": str, "url": str, "snippet": str, "price": float|None, "score": float|None},
-            ...
-          ],
-          "error": str|None
-        }
-    """
     if not query:
         return {"query": query, "results": [], "error": None}
 
     if not TAVILY_API_KEY:
-        msg = "TAVILY_API_KEY (or WEB_SEARCH_API_KEY) not set; returning empty results"
-        logger.warning(msg)
+        logger.warning("TAVILY_API_KEY not set")
         return {"query": query, "results": [], "error": "WEB_SEARCH_API_KEY not set"}
 
     try:
-        from tavily import TavilyClient  # lazy import
+        from tavily import TavilyClient
     except Exception as e:
-        logger.exception("tavily-python not installed or failed to import")
-        return {
-            "query": query,
-            "results": [],
-            "error": f"tavily import error: {e}",
-        }
+        return {"query": query, "results": [], "error": f"tavily import error: {e}"}
 
     try:
         client = TavilyClient(api_key=TAVILY_API_KEY)
-
-        # Tavily returns: {"query": ..., "results":[{title,url,content,score,...}], ...}
         raw = client.search(
             query=query,
             max_results=top_k,
@@ -240,5 +232,5 @@ def web_search(query: str, top_k: int = DEFAULT_TOP_K) -> Dict[str, Any]:
         return {"query": query, "results": results, "error": None}
 
     except Exception as e:
-        logger.exception("web.search request failed")
+        logger.exception("web.search failed")
         return {"query": query, "results": [], "error": str(e)}
