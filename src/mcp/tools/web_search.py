@@ -27,12 +27,16 @@ _PRODUCT_PATTERNS = {
     "amazon.com": [
         re.compile(r"/dp/[A-Z0-9]{10}", re.IGNORECASE),
         re.compile(r"/gp/product/[A-Z0-9]{10}", re.IGNORECASE),
+        re.compile(r"/gp/aw/d/[A-Z0-9]{10}", re.IGNORECASE),
+        re.compile(r"/gp/offer-listing/[A-Z0-9]{10}", re.IGNORECASE),
     ],
     "walmart.com": [
         re.compile(r"/ip/", re.IGNORECASE),
+        re.compile(r"/checkout/", re.IGNORECASE),
     ],
     "target.com": [
         re.compile(r"/p/", re.IGNORECASE),
+        re.compile(r"/-/A-\d+", re.IGNORECASE),
     ],
 }
 
@@ -133,6 +137,7 @@ def _serpapi_get_price(query: str) -> Optional[float]:
 def _normalize_tavily_results(raw: Dict[str, Any], top_k: int) -> List[Dict[str, Any]]:
     items = raw.get("results") or []
     normalized: List[Dict[str, Any]] = []
+    allowed_candidates: List[Dict[str, Any]] = []
 
     for it in items[:top_k]:
         title = (it.get("title") or "").strip()
@@ -144,28 +149,44 @@ def _normalize_tavily_results(raw: Dict[str, Any], top_k: int) -> List[Dict[str,
             logger.debug("Skipping non-retail domain: %s", url)
             continue
 
+        allowed_candidates.append({"title": title, "url": url, "snippet": snippet, "score": score})
+
         if not _is_product_page(url):
             logger.debug("Skipping non-product page: %s", url)
             continue
 
-        # First try to extract price from tavily snippet/title
-        price = _extract_price(title) or _extract_price(snippet)
-
-        # Fallback: if no price found in Tavily result, try SerpAPI Shopping
-        if price is None:
-            fallback_query = title or snippet
-            price = _serpapi_get_price(fallback_query)
-
         normalized.append(
-            {
-                "title": title,
-                "url": url,
-                "snippet": snippet,
-                "price": price,  # float or None
-                "score": score,  # tavily similarity score if provided
-            }
+            _normalize_single_result(title=title, url=url, snippet=snippet, score=score)
         )
+
+    # If no product URLs survived, fall back to any allowed retail domain to avoid empty results
+    if not normalized:
+        for it in allowed_candidates:
+            normalized.append(
+                _normalize_single_result(
+                    title=it["title"], url=it["url"], snippet=it["snippet"], score=it["score"]
+                )
+            )
+
     return normalized
+
+
+def _normalize_single_result(*, title: str, url: str, snippet: str, score: Any) -> Dict[str, Any]:
+    # First try to extract price from tavily snippet/title
+    price = _extract_price(title) or _extract_price(snippet)
+
+    # Fallback: if no price found in Tavily result, try SerpAPI Shopping
+    if price is None:
+        fallback_query = title or snippet
+        price = _serpapi_get_price(fallback_query)
+
+    return {
+        "title": title,
+        "url": url,
+        "snippet": snippet,
+        "price": price,  # float or None
+        "score": score,  # tavily similarity score if provided
+    }
 
 
 # -------------------------
