@@ -19,6 +19,13 @@ def _get_openai_client() -> OpenAI:
             "OPENAI_API_KEY must be set for OpenAI embeddings."
         )
     return OpenAI(api_key=api_key)
+    
+def get_openai_client() -> OpenAI:
+    """
+    Backwards-compatible wrapper so existing code that imports
+    `get_openai_client` continues to work.
+    """
+    return _get_openai_client()
 
 
 # ---------- Document preparation ----------
