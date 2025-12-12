@@ -214,32 +214,38 @@ Your task is to analyze the user's intent and constraints, then decide:
 
 **Search Strategies:**
 - `rag_only`: Only search private catalog
-  - Use when: User wants general recommendations, no emphasis on "current/latest/now"
-  - Example: "toy for 3 year old girl", "educational building blocks"
+  - Use when: Simple feature-based queries with NO emphasis on current data
+  - Example: "wooden toy for toddler", "puzzle with 50 pieces"
 
 - `web_only`: Only search web
-  - Use when: User explicitly asks for current info, latest trends, or price comparisons
-  - Example: "latest toy trends", "current price of [specific product]"
+  - Use when: User explicitly asks for current/latest info ONLY
+  - Example: "latest toy trends", "what's popular now"
 
-- `hybrid`: Search both and reconcile results
-  - Use when: User wants comprehensive comparison or mentions both features AND current pricing
-  - Example: "compare prices", "best rated with current availability"
+- `hybrid`: Search both and reconcile results (DEFAULT for most queries)
+  - Use when: ANY of these apply:
+    * User mentions price, deals, availability, or value
+    * User wants comparisons or rankings
+    * User asks about "best", "top", "recommended"
+    * User wants comprehensive results
+    * You're uncertain which is better
+  - Example: "best toy for 3 year old", "toy under $25", "compare dolls"
 
-**Decision Rules:**
-1. Default to `rag_only` for standard product recommendations
-2. Use `web_only` ONLY if user explicitly mentions: "latest", "current", "now", "today", "trending"
-3. Use `hybrid` if user asks for: "compare prices", "best deal", "availability"
-4. For `out_of_scope` intent, return empty plan
+**Decision Rules (UPDATED):**
+1. Use `hybrid` as DEFAULT for product recommendations (better coverage)
+2. Use `rag_only` ONLY for very simple, feature-specific queries
+3. Use `web_only` ONLY if user EXPLICITLY says "only latest" or "ignore catalog"
+4. When in doubt → choose `hybrid`
+5. For `out_of_scope` intent, return empty plan
 
 **Output Format:**
 Return a JSON object:
 {
-  "search_strategy": "rag_only",
-  "plan": ["rag.search"],
-  "reasoning": "User wants general toy recommendations; private catalog has sufficient data",
+  "search_strategy": "hybrid",
+  "plan": ["rag.search", "web.search"],
+  "reasoning": "User wants best recommendations, hybrid provides comprehensive results from both catalog and web",
   "search_params": {
     "top_k": 5,
-    "filters": {"price_max": 25.0, "age": "3 years"}
+    "filters": {"price_max": 25.0}
   }
 }
 """
