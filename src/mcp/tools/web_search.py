@@ -1,10 +1,11 @@
 """
-web.search MCP tool implementation (Tavily-backed).
+Web search MCP tool implementation (Tavily + minimal SerpAPI fallback).
 
-Policy:
-- Only keep results from: amazon.com, walmart.com, target.com
-- Normalize to a stable schema for downstream agent nodes:
-  { query: str, results: [{title, url, snippet, score, price}], error: Optional[str] }
+Goal:
+- Primary: Use Tavily Web Search and normalize output.
+- If Tavily results have no price (common for listing pages),
+  fallback to SerpAPI Google Shopping to extract a product price.
+- Maintain existing JSON shape for MCP clients.
 """
 
 from __future__ import annotations
@@ -13,144 +14,159 @@ import logging
 import os
 import re
 from typing import Any, Dict, List, Optional
-from urllib.parse import urlparse
 
-from tavily import TavilyClient
-from tavily.errors import InvalidAPIKeyError
+import requests
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TOP_K = int(os.getenv("WEB_SEARCH_TOP_K", "5"))
-TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
+DEFAULT_TOP_K = 5
 
-ALLOWED_DOMAINS = {"amazon.com", "walmart.com", "target.com"}
+# Backward compatible env name (your earlier version used WEB_SEARCH_API_KEY)
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY") or os.getenv("WEB_SEARCH_API_KEY")
 
-QUERY_SUFFIX = (
-    " buy price product page "
-    "site:amazon.com OR site:walmart.com OR site:target.com"
-)
+# SerpAPI Shopping fallback
+SERPAPI_API_KEY = os.getenv("SERPAPI_API_KEY")
 
-_PRICE_RE = re.compile(
-    r"(?:USD\s*)?\$?\s*(\d{1,4}(?:[.,]\d{1,2})?)",
-    flags=re.IGNORECASE,
-)
 
-def _domain_ok(url: str) -> bool:
-    try:
-        host = urlparse(url).netloc.lower()
-    except Exception:
-        return False
-    return any(host == d or host.endswith("." + d) for d in ALLOWED_DOMAINS)
+# -----------------------
+# Price Extraction Patterns
+# -----------------------
+_PRICE_PATTERNS = [
+    re.compile(r"\$\s*(\d+(?:\.\d{1,2})?)", re.IGNORECASE),
+    re.compile(r"\bUSD\s*(\d+(?:\.\d{1,2})?)\b", re.IGNORECASE),
+    re.compile(r"\b(\d+(?:\.\d{1,2})?)\s*USD\b", re.IGNORECASE),
+    re.compile(r"\b(\d+(?:\.\d{1,2})?)\s*(?:dollars|usd)\b", re.IGNORECASE),
+]
 
-def _extract_price(candidate: Any) -> Optional[float]:
-    """
-    Try to parse a price from Tavily's fields or from title/snippet.
-    Returns float if found, else None.
-    """
-    if candidate is None:
+
+def _extract_price(text: str) -> Optional[float]:
+    """Best-effort extract a price from free text."""
+    if not text:
         return None
-
-    # If Tavily provides numeric price sometimes
-    if isinstance(candidate, (int, float)):
-        try:
-            return float(candidate)
-        except Exception:
-            return None
-
-    # If it's a string that contains a price
-    if isinstance(candidate, str):
-        m = _PRICE_RE.search(candidate)
-        if not m:
-            return None
-        raw = m.group(1).replace(",", ".").strip()
-        try:
-            return float(raw)
-        except Exception:
-            return None
-
+    for pat in _PRICE_PATTERNS:
+        m = pat.search(text)
+        if m:
+            try:
+                val = float(m.group(1))
+                if 0 < val < 10000:
+                    return val
+            except Exception:
+                continue
     return None
 
-def _safe_str(x: Any) -> str:
-    if x is None:
-        return ""
-    return str(x)
 
-def web_search(query: str, top_k: int = DEFAULT_TOP_K) -> Dict[str, Any]:
-    """
-    Call Tavily search and normalize results.
-
-    Returns:
-      {
-        "query": str,
-        "results": [
-          {"title": str, "url": str, "snippet": str, "score": float, "price": Optional[float]}
-        ],
-        "error": Optional[str]
-      }
-    """
-    if not query or not query.strip():
-        return {"query": query, "results": [], "error": None}
-
-    if not TAVILY_API_KEY:
-        msg = "TAVILY_API_KEY not set"
-        logger.warning(msg)
-        return {"query": query, "results": [], "error": msg}
-
-    rewritten_query = f"{query.strip()} {QUERY_SUFFIX}"
+# -------------------------
+# SerpAPI Fallback for Price
+# -------------------------
+def _serpapi_get_price(query: str) -> Optional[float]:
+    """Minimal SerpAPI Google Shopping fallback: return first product price."""
+    if not SERPAPI_API_KEY:
+        return None
 
     try:
-        client = TavilyClient(api_key=TAVILY_API_KEY)
+        params = {
+            "engine": "google_shopping",
+            "q": query,
+            "api_key": SERPAPI_API_KEY,
+        }
+        resp = requests.get("https://serpapi.com/search", params=params, timeout=8)
+        data = resp.json()
+        products = data.get("shopping_results", [])
+        if not products:
+            return None
 
-        raw = client.search(
-            query=rewritten_query,
-            max_results=max(10, int(top_k) * 3), 
-            include_answer=False,
-            include_raw_content=False,
-            include_images=False,
-        )
-    except InvalidAPIKeyError as e:
-        msg = "Unauthorized: missing or invalid API key"
-        logger.exception("web.search request failed: %s", e)
-        return {"query": query, "results": [], "error": msg}
-    except Exception as e:
-        logger.exception("web.search request failed")
-        return {"query": query, "results": [], "error": str(e)}
+        price_str = products[0].get("price")
+        if not price_str:
+            return None
 
-    raw_results = raw.get("results", []) if isinstance(raw, dict) else []
+        cleaned = price_str.replace("$", "").replace(",", "").strip()
+        return float(cleaned)
+    except Exception:
+        return None
+
+
+# -------------------------
+# Normalize Tavily Output
+# -------------------------
+def _normalize_tavily_results(raw: Dict[str, Any], top_k: int) -> List[Dict[str, Any]]:
+    items = raw.get("results") or []
     normalized: List[Dict[str, Any]] = []
 
-    for r in raw_results:
-        if not isinstance(r, dict):
-            continue
+    for it in items[:top_k]:
+        title = (it.get("title") or "").strip()
+        url = (it.get("url") or "").strip()
+        snippet = (it.get("content") or it.get("snippet") or "").strip()
+        score = it.get("score")
 
-        url = _safe_str(r.get("url")).strip()
-        if not url or not _domain_ok(url):
-            continue 
+        # First try to extract price from tavily snippet/title
+        price = _extract_price(title) or _extract_price(snippet)
 
-        title = _safe_str(r.get("title")).strip()
-        snippet = _safe_str(r.get("content") or r.get("snippet") or r.get("description")).strip()
-        score = r.get("score", 0.0)
-        try:
-            score_f = float(score) if score is not None else 0.0
-        except Exception:
-            score_f = 0.0
-
-        price = _extract_price(r.get("price"))
+        # Fallback: if no price found in Tavily result, try SerpAPI Shopping
         if price is None:
-            price = _extract_price(title) or _extract_price(snippet)
+            fallback_query = title or snippet
+            price = _serpapi_get_price(fallback_query)
 
         normalized.append(
             {
                 "title": title,
                 "url": url,
                 "snippet": snippet,
-                "score": score_f,
-                "price": price,
+                "price": price,  # float or None
+                "score": score,  # tavily similarity score if provided
             }
         )
+    return normalized
 
-        if len(normalized) >= int(top_k):
-            break
 
-    logger.info("web.search returned %d filtered results for query '%s'", len(normalized), query)
-    return {"query": query, "results": normalized, "error": None}
+# -------------------------
+# Main Web Search Function
+# -------------------------
+def web_search(query: str, top_k: int = DEFAULT_TOP_K) -> Dict[str, Any]:
+    """Call Tavily web search and normalize results.
+
+    Returns:
+        {
+          "query": str,
+          "results": [
+            {"title": str, "url": str, "snippet": str, "price": float|None, "score": float|None},
+            ...
+          ],
+          "error": str|None
+        }
+    """
+    if not query:
+        return {"query": query, "results": [], "error": None}
+
+    if not TAVILY_API_KEY:
+        msg = "TAVILY_API_KEY (or WEB_SEARCH_API_KEY) not set; returning empty results"
+        logger.warning(msg)
+        return {"query": query, "results": [], "error": "WEB_SEARCH_API_KEY not set"}
+
+    try:
+        from tavily import TavilyClient  # lazy import
+    except Exception as e:
+        logger.exception("tavily-python not installed or failed to import")
+        return {
+            "query": query,
+            "results": [],
+            "error": f"tavily import error: {e}",
+        }
+
+    try:
+        client = TavilyClient(api_key=TAVILY_API_KEY)
+
+        # Tavily returns: {"query": ..., "results":[{title,url,content,score,...}], ...}
+        raw = client.search(
+            query=query,
+            max_results=top_k,
+            include_answer=False,
+            include_raw_content=False,
+        )
+
+        results = _normalize_tavily_results(raw, top_k=top_k)
+        logger.info("web.search returned %d results for '%s'", len(results), query)
+        return {"query": query, "results": results, "error": None}
+
+    except Exception as e:
+        logger.exception("web.search request failed")
+        return {"query": query, "results": [], "error": str(e)}
