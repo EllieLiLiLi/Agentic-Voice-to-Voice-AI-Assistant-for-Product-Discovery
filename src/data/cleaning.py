@@ -2,7 +2,8 @@
 
 These helpers keep the index building script tidy and allow reuse in tests
 or other pipelines. They intentionally avoid hard-coding column names by
-probing for the most common fields seen in public Amazon product datasets.
+probing for the most common fields seen in public Amazon product datasets,
+but include the amazon2020.csv toy-slice columns explicitly.
 """
 from __future__ import annotations
 
@@ -14,19 +15,25 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-
+# We must at least have these for indexing
 CRITICAL_FIELDS: Sequence[str] = ("product_id", "title", "price")
 
 
 def load_raw_data(raw_path: Path) -> pd.DataFrame:
     """Load the raw CSV and log basic metadata."""
     df = pd.read_csv(raw_path)
-    logger.info("Loaded raw data from %s with %d rows and %d columns", raw_path, len(df), df.shape[1])
+    logger.info(
+        "Loaded raw data from %s with %d rows and %d columns",
+        raw_path,
+        len(df),
+        df.shape[1],
+    )
     logger.info("Columns: %s", list(df.columns))
     return df
 
 
 def _first_available(df: pd.DataFrame, candidates: Iterable[str]) -> Optional[str]:
+    """Return the first column name from candidates that exists in df."""
     return next((col for col in candidates if col in df.columns), None)
 
 
@@ -38,14 +45,48 @@ def select_and_normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     but critical ones must be present by downstream cleaning steps.
     """
 
+    # ==== IMPORTANT: include amazon2020.csv column names here ====
     column_candidates = {
-        "product_id": ["asin", "product_id", "sku", "id"],
+        # product id: prefer ASIN / SKU when available
+        "product_id": [
+            "asin",
+            "ASIN",
+            "Asin",
+            "product_id",
+            "sku",
+            "Sku",
+            "SKU",
+            "id",
+        ],
+        # title / name
         "title": ["title", "product_title", "name", "Product Name"],
+        # brand
         "brand": ["brand", "manufacturer", "maker", "Brand Name"],
+        # category
         "category": ["category", "categories", "parent", "Category"],
-        "price": ["price", "list_price", "price_usd", "Price"],
+        # price: prefer selling price, fall back to list/price columns
+        "price": [
+            "Selling Price",
+            "List Price",
+            "price",
+            "list_price",
+            "price_usd",
+            "Price",
+        ],
+        # rating if we ever have it
         "rating": ["rating", "star_rating", "average_rating", "stars"],
-        "features": ["feature", "features", "description", "bullet_points"],
+        # long text / description
+        "features": [
+            "feature",
+            "features",
+            "description",
+            "bullet_points",
+            "Product Description",
+            "Product Details",
+            "About Product",
+            "Product Specification",
+        ],
+        # ingredients (not really used for toys, but kept for generality)
         "ingredients": ["ingredients", "ingredient"],
     }
 
@@ -67,110 +108,109 @@ def select_and_normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
         subset["features"] = subset["features"].fillna("")
 
     # Ensure text fields are strings
-    text_fields = [field for field in ("title", "brand", "category", "features", "ingredients") if field in subset.columns]
+    text_fields = [
+        field
+        for field in ("title", "brand", "category", "features", "ingredients")
+        if field in subset.columns
+    ]
     for field in text_fields:
         subset[field] = subset[field].astype(str)
 
     return subset
 
 
-def filter_toys_category(df: pd.DataFrame) -> pd.DataFrame:
-    """Keep rows whose category contains ``Toys & Games`` (case-insensitive).
+def filter_by_category(
+    df: pd.DataFrame,
+    allowed_keywords: Optional[Sequence[str]] = None,
+) -> pd.DataFrame:
+    """Filter the dataframe to rows that match allowed category keywords.
 
-    If the filter would remove all rows, log a warning and return the
-    unfiltered dataframe to ensure downstream indexing has data to work with.
+    Matching is case-insensitive and checks both the category column (if
+    present) and the title as a fallback. If ``allowed_keywords`` is empty or
+    ``None``, the original dataframe is returned unchanged.
+
+    For our toys slice you can pass something like ["Toys & Games"] from
+    the CLI (build_index.py --allowed-keywords "Toys & Games").
     """
-
-    if "category" not in df.columns:
-        logger.warning("Category column not found; skipping category filter")
+    if not allowed_keywords:
         return df
 
-    before = len(df)
-    mask = df["category"].str.contains("Toys & Games", case=False, na=False)
-    filtered = df[mask]
+    keywords_lower = [kw.lower() for kw in allowed_keywords]
 
-    if len(filtered) == 0:
-        logger.warning(
-            "Category filter 'Toys & Games' would remove all rows (%d -> 0); using unfiltered dataframe instead",
-            before,
-        )
-        return df
+    def row_matches(row: pd.Series) -> bool:
+        haystacks = []
+        if "category" in row and pd.notna(row["category"]):
+            haystacks.append(str(row["category"]).lower())
+        if "title" in row and pd.notna(row["title"]):
+            haystacks.append(str(row["title"]).lower())
+        combined = " ".join(haystacks)
+        return any(keyword in combined for keyword in keywords_lower)
 
-    logger.info("Filtered rows: %d -> %d using category filter 'Toys & Games'", before, len(filtered))
+    filtered = df[df.apply(row_matches, axis=1)]
+    logger.info(
+        "Filtered rows: %d -> %d using keywords %s",
+        len(df),
+        len(filtered),
+        keywords_lower,
+    )
     return filtered
 
 
-def _parse_price(series: pd.Series) -> pd.Series:
-    cleaned = (
-        series.astype(str)
-        .str.replace(r"[^0-9.]", "", regex=True)
-        .str.strip()
-    )
-    price = pd.to_numeric(cleaned, errors="coerce")
-    return price
+def clean_dataframe(
+    df: pd.DataFrame,
+    allowed_keywords: Optional[Sequence[str]] = None,
+    price_cap_quantile: float = 0.99,
+) -> pd.DataFrame:
+    """Apply filtering and cleaning rules to the dataframe.
 
-# Add Price & Description:
+    NOTE: the signature MUST stay in sync with build_index.py:
+        clean_dataframe(raw_df, allowed_keywords=..., price_cap_quantile=...)
+    """
 
-def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    logger.info("Columns: %s", df.columns.tolist())
+    # 1) Normalize column names & pick the useful subset
+    df = select_and_normalize_columns(df)
 
-    mask_toys = df["Category"].astype(str).str.contains(
-        TOYS_CATEGORY_KEYWORD, na=False
-    )
-    df = df[mask_toys]
-    logger.info(
-        "Filtered rows by category '%s': %d",
-        TOYS_CATEGORY_KEYWORD,
-        len(df),
-    )
+    # 2) Drop rows missing critical fields
+    before = len(df)
+    df = df.dropna(subset=[col for col in CRITICAL_FIELDS if col in df.columns])
+    logger.info("Dropped %d rows missing critical fields", before - len(df))
 
-    critical_cols = [
-        "Product Name",
-        "Brand Name",
-        "Category",
-        "Selling Price",  
-    ]
-    df = df.dropna(subset=critical_cols)
-    logger.info("After dropping NaNs in %s: %d", critical_cols, len(df))
+    # 3) Normalize price to float (strip currency symbols etc.)
+    if "price" in df.columns:
+        # Remove anything that's not digit or dot, then cast
+        df["price"] = (
+            df["price"]
+            .astype(str)
+            .str.replace(r"[^0-9.]", "", regex=True)
+            .str.strip()
+        )
 
-    df["price"] = _parse_price(df["Selling Price"])
-    df = df[df["price"].notna()]
-    logger.info("After parsing price: %d", len(df))
+        df["price"] = pd.to_numeric(df["price"], errors="coerce")
+        before_price = len(df)
+        df = df.dropna(subset=["price"])
+        logger.info("Dropped %d rows with invalid price", before_price - len(df))
 
-    text_cols = [
-        "Product Description",
-        "Product Details",
-        "About Product",
-        "Product Specification",
-    ]
-    for col in text_cols:
-        if col not in df.columns:
-            df[col] = ""
+        if price_cap_quantile:
+            cap_value = df["price"].quantile(price_cap_quantile)
+            df.loc[df["price"] > cap_value, "price"] = cap_value
+            logger.info(
+                "Capped price at %.2f (quantile %.2f)",
+                cap_value,
+                price_cap_quantile,
+            )
 
-    df[text_cols] = df[text_cols].fillna("")
+    # 4) Normalize rating to float if present
+    if "rating" in df.columns:
+        df["rating"] = pd.to_numeric(df["rating"], errors="coerce")
 
-    df["description"] = (
-        df[text_cols]
-        .agg(" ".join, axis=1)
-        .str.replace(r"\s+", " ", regex=True)
-        .str.strip()
-    )
+    # 5) Optional category/title keyword filter (e.g. "Toys & Games")
+    df = filter_by_category(df, allowed_keywords=allowed_keywords)
 
-    cleaned_df = pd.DataFrame(
-        {
-            "title": df["Product Name"].astype(str).str.strip(),
-            "brand": df["Brand Name"].astype(str).str.strip(),
-            "category": df["Category"].astype(str).str.strip(),
-            "price": df["price"].astype(float),
-            "url": df.get("Product Url", "").astype(str),
-            "description": df["description"].astype(str),
-        }
-    )
-
+    # 6) Final tidy-up
+    df = df.reset_index(drop=True)
     logger.info(
         "Final cleaned dataset has %d rows and columns %s",
-        len(cleaned_df),
-        list(cleaned_df.columns),
+        len(df),
+        list(df.columns),
     )
-
-    return cleaned_df
+    return df
