@@ -145,26 +145,31 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
             st.write(summary)
             st.markdown("---")
 
-    # ===== 1) Product Comparison =====
+        # ===== 1) Product Comparison =====
     st.markdown("#### Top-5 Product Comparison")
     if not products:
         st.write("No products returned.")
     else:
         df = pd.DataFrame(products)
+
+        # 现在 rag 和 web 都有 url，就不再展示 product_id
         preferred_cols = [
             "sku",
             "title",
             "brand",
             "price",
             "rating",
-            "product_id",   # RAG 里的 ID
-            "url",          # WEB 里的 URL（如果有）
-            "source",       # "rag" / "web"
+            "url",      # 通用 URL 列
+            "source",   # "rag" / "web"
         ]
         cols = [c for c in preferred_cols if c in df.columns] + [
             c for c in df.columns if c not in preferred_cols
         ]
         df = df[cols]
+
+        # 如果你真想严格 Top-5，可以加一行：
+        # df = df.head(5)
+
         st.dataframe(df, use_container_width=True)
 
     # ===== 2) Citations：标题 + URL =====
@@ -176,30 +181,22 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
     st.markdown("#### Citations")
     if not citations:
         st.write("No citations.")
-        # 调试用（需要的话可以临时打开）：
         # st.write("raw citations debug:", raw_state.get("citations"))
     else:
         for c in citations:
-            ctype = (c.get("type") or "").lower()   # "rag" / "web"
-            cid = c.get("id")                       # 对 web 来说就是 URL
             title = c.get("title") or "(no title)"
 
-            # 对于 web：id 本身就是 URL
-            url = None
-            if ctype == "web":
-                url = cid
-            # 如果以后你在 Citation 里加了 url 字段，可以写成：
-            # url = c.get("url") or (cid if ctype == "web" else None)
+            url = c.get("url")
+
+            if not url:
+                cid = c.get("id")
+                url = cid if isinstance(cid, str) and cid.startswith("http") else None
 
             if url:
-                # 标题 + 可点击 URL
                 st.markdown(f"- [{title}]({url})")
             else:
-                # 没有 URL（比如 RAG 只有 product_id），就显示标题 + id
-                if cid:
-                    st.markdown(f"- {title} (`{cid}`)")
-                else:
-                    st.markdown(f"- {title}")
+                st.markdown(f"- {title}")
+
 
 
 
