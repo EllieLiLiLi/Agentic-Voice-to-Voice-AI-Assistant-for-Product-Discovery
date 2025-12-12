@@ -133,7 +133,7 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
     steps: List[Dict[str, Any]] = agent_result.get("steps", [])
     products: List[Dict[str, Any]] = agent_result.get("products", [])
 
-    # # Step log（你之前注释掉了，我保留原样没动）
+    # ===== 0) Agent Step Log =====
     st.markdown("#### Agent Step Log")
     if not steps:
         st.write("No step log provided.")
@@ -145,7 +145,7 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
             st.write(summary)
             st.markdown("---")
 
-    # Product comparison table
+    # ===== 1) Product Comparison =====
     st.markdown("#### Top-3 Product Comparison")
     if not products:
         st.write("No products returned.")
@@ -157,40 +157,26 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
             "brand",
             "price",
             "rating",
-            "doc_id",
-            "source_url",
+            "product_id",   # RAG 里的 ID
+            "url",          # WEB 里的 URL（如果有）
+            "source",       # "rag" / "web"
         ]
         cols = [c for c in preferred_cols if c in df.columns] + [
-            c for c in df.columns if c not in df.columns
+            c for c in df.columns if c not in preferred_cols
         ]
         df = df[cols]
         st.dataframe(df, use_container_width=True)
 
-    # Citations
-    # st.markdown("#### Citations")
-    # if not products:
-    #     st.write("No citations.")
-    # else:
-    #     for p in products:
-    #         doc_id = p.get("doc_id")
-    #         url = p.get("source_url")
-    #         title = p.get("title") or p.get("sku")
-    #         if not (doc_id or url):
-    #             continue
-    #         line_parts = []
-    #         if doc_id:
-    #             line_parts.append(f"**doc_id:** `{doc_id}`")
-    #         if url:
-    #             line_parts.append(f"[{title}]({url})")
-    #         st.markdown("- " + " — ".join(line_parts))
-    # raw_state = agent_result.get("raw_state", {}) or {}
-    # citations: List[Dict[str, Any]] = raw_state.get("citations", []) or agent_result.get(
-    #     "citations", []
-    # )
+    # ===== 2) Citations：标题 + URL =====
+    raw_state = agent_result.get("raw_state", {}) or {}
+    citations: List[Dict[str, Any]] = raw_state.get("citations", []) or agent_result.get(
+        "citations", []
+    )
 
     st.markdown("#### Citations")
     if not citations:
         st.write("No citations.")
+        # 调试用（需要的话可以临时打开）：
         # st.write("raw citations debug:", raw_state.get("citations"))
     else:
         for c in citations:
@@ -198,22 +184,23 @@ def render_agent_details(agent_result: Dict[str, Any]) -> None:
             cid = c.get("id")                       # 对 web 来说就是 URL
             title = c.get("title") or "(no title)"
 
-            # 🌟 对于 web：id 本身就是 URL
+            # 对于 web：id 本身就是 URL
             url = None
             if ctype == "web":
                 url = cid
-            # 如果你以后在 Citation 里加了 url 字段，可以优先用 c.get("url")
+            # 如果以后你在 Citation 里加了 url 字段，可以写成：
             # url = c.get("url") or (cid if ctype == "web" else None)
 
             if url:
-                # 标题 + URL（可点击）
+                # 标题 + 可点击 URL
                 st.markdown(f"- [{title}]({url})")
             else:
-                # 没有 URL（例如 RAG 只有 product_id），就只展示标题和 id
+                # 没有 URL（比如 RAG 只有 product_id），就显示标题 + id
                 if cid:
                     st.markdown(f"- {title} (`{cid}`)")
                 else:
                     st.markdown(f"- {title}")
+
 
 
 # =========================
