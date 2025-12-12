@@ -94,36 +94,62 @@ def embed_documents(documents, model: str = "text-embedding-3-small"):
     return vectors
 
 
+
 def build_vector_index(
-    cleaned_df: pd.DataFrame,
+    cleaned_df,
     index_dir: str,
     collection_name: str = "products",
+    chroma_batch_size: int = 4000,  # 必须 < 5461，给点安全空间
 ) -> None:
     """
-    构建 / 更新 Chroma 向量索引。
-    - documents: title
-    - metadata: {product_id, title, price, url}
-    - id: product_id
+    Build or rebuild a Chroma vector index from the cleaned dataframe.
+
+    Args:
+        cleaned_df: pandas.DataFrame with columns ["product_id","title","price","url"].
+        index_dir: Directory where the Chroma index will be stored.
+        collection_name: Name of the Chroma collection.
+        chroma_batch_size: Max number of records per Chroma .add() call.
     """
+    os.makedirs(index_dir, exist_ok=True)
+    logger.info("Building Chroma index in '%s' collection '%s'", index_dir, collection_name)
+
+    chroma_client = chromadb.PersistentClient(path=index_dir)
+    collection = chroma_client.get_or_create_collection(name=collection_name)
+
+    # 1. 准备文档 & metadata & id
     documents, metadatas, ids = prepare_documents(cleaned_df)
 
     if not documents:
         logger.warning("No valid documents for embedding; skipping index build.")
         return
 
-    embeddings = embed_documents(documents)
-    if not embeddings:
-        logger.warning("Embedding call returned empty; skipping index build.")
-        return
+    total = len(documents)
+    logger.info("Prepared %d documents for embedding and indexing", total)
 
-    client = chromadb.PersistentClient(path=index_dir)
-    collection = client.get_or_create_collection(name=collection_name)
+    # 2. 分批写入 Chroma，避免 batch size 超过上限
+    start = 0
+    while start < total:
+        end = min(start + chroma_batch_size, total)
 
-    logger.info("Adding %d documents to Chroma collection '%s'", len(ids), collection_name)
-    collection.add(
-        ids=ids,
-        documents=documents,
-        metadatas=metadatas,
-        embeddings=embeddings,
-    )
-    logger.info("Finished indexing %d products.", len(ids))
+        batch_docs = documents[start:end]
+        batch_metas = metadatas[start:end]
+        batch_ids = ids[start:end]
+
+        logger.info("Embedding and adding batch %d-%d (size=%d)",
+                    start, end - 1, len(batch_docs))
+
+        # 2.1 对当前 batch 调 embeddings
+        batch_embeddings = embed_documents(batch_docs)
+
+        # 2.2 把当前 batch 写进 Chroma
+        collection.add(
+            ids=batch_ids,
+            documents=batch_docs,
+            metadatas=batch_metas,
+            embeddings=batch_embeddings,
+        )
+
+        start = end
+
+    logger.info("Finished indexing %d products into Chroma collection '%s'", total, collection_name)
+
